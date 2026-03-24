@@ -105,8 +105,10 @@ def get_ai_insight(alert: NormalizedAlert) -> dict:
             ],
         }
     except requests.RequestException as exc:
+        # Mask the API key in the error message
+        safe_msg = str(exc).replace(token, "***")
         return {
-            "insight": f"AI analysis unavailable (API error: {exc}).",
+            "insight": f"AI analysis unavailable (API error: {safe_msg}).",
             "suggested_actions": [
                 "Check the raw alert payload for details.",
                 "Review service logs manually.",

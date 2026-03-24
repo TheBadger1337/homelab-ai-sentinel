@@ -79,7 +79,10 @@ def get_ai_insight(alert: NormalizedAlert) -> dict:
     payload = {
         "systemInstruction": {"parts": [{"text": _SYSTEM_PROMPT}]},
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 512},
+        "generationConfig": {
+            "maxOutputTokens": 1024,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
     }
 
     try:

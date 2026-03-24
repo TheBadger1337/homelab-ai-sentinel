@@ -101,7 +101,7 @@ def _parse_generic(data: dict) -> NormalizedAlert:
         or f"{service_name} alert: {status}"
     )
 
-    # Store everything else as context for Claude
+    # Store everything else as extra context for the AI
     excluded = {"status", "state", "alertstate", "service", "name",
                 "host", "source", "message", "msg", "description", "text"}
     details = {k: v for k, v in data.items() if k not in excluded}

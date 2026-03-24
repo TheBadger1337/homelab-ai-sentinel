@@ -2,7 +2,7 @@
 Discord webhook integration.
 
 Posts a formatted embed containing the normalized alert info
-plus the Claude-generated AI Insight and Suggested Actions.
+plus the AI-generated Insight and Suggested Actions.
 """
 
 import os

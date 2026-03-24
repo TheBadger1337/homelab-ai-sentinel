@@ -1,4 +1,6 @@
 .env
+.env.*
+*.env
 __pycache__/
 *.pyc
 *.pyo
@@ -7,3 +9,4 @@ venv/
 *.egg-info/
 dist/
 .DS_Store
+*.log

@@ -1,25 +1,21 @@
 """
-Claude API integration.
+Gemini API integration.
 
-Calls claude-sonnet-4-6 with alert context and returns a structured
+Calls gemini-2.5-flash with alert context and returns a structured
 AI Insight + Suggested Actions dict.
 """
 
 import json
 import os
-import anthropic
+
+import requests
 
 from .alert_parser import NormalizedAlert
 
-_client: anthropic.Anthropic | None = None
-
-
-def _get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-    return _client
-
+_GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "gemini-2.5-flash:generateContent"
+)
 
 _SYSTEM_PROMPT = """\
 You are a homelab monitoring assistant. Your job is to help homelab operators
@@ -56,9 +52,19 @@ Respond with this exact JSON schema:
 
 def get_ai_insight(alert: NormalizedAlert) -> dict:
     """
-    Call Claude and return {"insight": str, "suggested_actions": list[str]}.
+    Call Gemini and return {"insight": str, "suggested_actions": list[str]}.
     Falls back to a generic response on any API error.
     """
+    token = os.environ.get("GEMINI_TOKEN", "")
+    if not token:
+        return {
+            "insight": "AI analysis unavailable (GEMINI_TOKEN not set).",
+            "suggested_actions": [
+                "Check the raw alert payload for details.",
+                "Review service logs manually.",
+            ],
+        }
+
     details_str = json.dumps(alert.details, indent=2) if alert.details else "None"
 
     prompt = _USER_TEMPLATE.format(
@@ -70,14 +76,21 @@ def get_ai_insight(alert: NormalizedAlert) -> dict:
         details=details_str,
     )
 
+    payload = {
+        "systemInstruction": {"parts": [{"text": _SYSTEM_PROMPT}]},
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 512},
+    }
+
     try:
-        response = _get_client().messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=512,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
+        resp = requests.post(
+            _GEMINI_URL,
+            params={"key": token},
+            json=payload,
+            timeout=30,
         )
-        raw = response.content[0].text.strip()
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         return json.loads(raw)
     except (json.JSONDecodeError, KeyError, IndexError) as exc:
         return {
@@ -87,7 +100,7 @@ def get_ai_insight(alert: NormalizedAlert) -> dict:
                 "Review service logs manually.",
             ],
         }
-    except anthropic.APIError as exc:
+    except requests.RequestException as exc:
         return {
             "insight": f"AI analysis unavailable (API error: {exc}).",
             "suggested_actions": [

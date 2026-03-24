@@ -91,6 +91,10 @@ def get_ai_insight(alert: NormalizedAlert) -> dict:
         )
         resp.raise_for_status()
         raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        # Gemini sometimes wraps JSON in markdown fences despite instructions
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1]
+            raw = raw.rsplit("```", 1)[0].strip()
         return json.loads(raw)
     except (json.JSONDecodeError, KeyError, IndexError) as exc:
         return {

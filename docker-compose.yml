@@ -6,7 +6,7 @@ services:
     ports:
       - "5000:5000"
     env_file:
-      - .env
+      - .secrets.env
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 30s

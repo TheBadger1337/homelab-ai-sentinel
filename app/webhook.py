@@ -4,18 +4,17 @@ Flask blueprint: POST /webhook
 Flow:
   1. Parse incoming JSON payload into a NormalizedAlert
   2. Call AI provider for Insight + Suggested Actions
-  3. Post Discord embed
+  3. Dispatch to all configured notification platforms
   4. Return JSON response
 """
 
 import logging
 
-import requests
 from flask import Blueprint, jsonify, request
 
 from .alert_parser import parse_alert
 from .claude_client import get_ai_insight
-from .discord_client import post_alert
+from . import notify
 
 logger = logging.getLogger(__name__)
 webhook_bp = Blueprint("webhook", __name__)
@@ -45,16 +44,10 @@ def webhook():
     ai = get_ai_insight(alert)
     logger.info("AI insight generated for %s", alert.service_name)
 
-    # 3. Discord
-    discord_error = None
-    try:
-        post_alert(alert, ai)
-    except requests.RequestException as exc:
-        # Log full detail server-side; never return the webhook URL to callers
-        logger.warning("Discord post failed: %s", exc)
-        discord_error = "Discord delivery failed"
+    # 3. Dispatch to all configured platforms
+    notification_errors = notify.dispatch(alert, ai)
 
-    response = {
+    response: dict = {
         "status": "processed",
         "alert": {
             "source": alert.source,
@@ -65,7 +58,7 @@ def webhook():
         "ai_insight": ai.get("insight"),
         "suggested_actions": ai.get("suggested_actions", []),
     }
-    if discord_error:
-        response["discord_error"] = discord_error
+    if notification_errors:
+        response["notification_errors"] = notification_errors
 
     return jsonify(response), 200

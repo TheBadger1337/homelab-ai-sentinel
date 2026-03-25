@@ -1,6 +1,6 @@
 # Homelab AI Sentinel
 
-**AI-powered alert enrichment for your homelab — turns raw monitoring webhooks into actionable Discord notifications.**
+**AI-powered alert enrichment for your homelab — turns raw monitoring webhooks into actionable notifications on Discord, Slack, and more.**
 
 ![Python](https://img.shields.io/badge/python-3.12-blue)
 ![Docker](https://img.shields.io/badge/docker-ready-blue)
@@ -26,19 +26,19 @@ Homelab AI Sentinel is a small Flask service that sits between your monitoring t
 ## Architecture
 
 ```
-┌──────────────────┐         ┌───────────────────────────────────────┐
-│  Uptime Kuma /   │         │         Homelab AI Sentinel            │
-│  Grafana /       │─POST──▶ │  POST /webhook                        │
-│  curl / etc.     │  JSON   │    ├─ alert_parser.py  (normalize)    │
-└──────────────────┘         │    ├─ claude_client.py (Gemini call)  │
-                             │    └─ discord_client.py (embed post)  │
-                             └──────────┬──────────────┬─────────────┘
-                                        │              │
-                                        ▼              ▼
-                               ┌────────────┐  ┌──────────────┐
-                               │ Gemini API │  │   Discord    │
-                               │ (free tier)│  │   Webhook    │
-                               └────────────┘  └──────────────┘
+┌──────────────────┐         ┌────────────────────────────────────────────┐
+│  Uptime Kuma /   │         │           Homelab AI Sentinel               │
+│  Grafana /       │─POST──▶ │  POST /webhook                             │
+│  curl / etc.     │  JSON   │    ├─ alert_parser.py   (normalize)        │
+└──────────────────┘         │    ├─ claude_client.py  (Gemini call)      │
+                             │    └─ notify.py          (dispatcher)       │
+                             └──────────┬──────────────┬────────────┬──────┘
+                                        │              │            │
+                                        ▼              ▼            ▼
+                               ┌────────────┐  ┌─────────┐  ┌──────────┐
+                               │ Gemini API │  │ Discord │  │  Slack   │
+                               │ (free tier)│  │ Webhook │  │ Webhook  │
+                               └────────────┘  └─────────┘  └──────────┘
 ```
 
 ---
@@ -100,6 +100,7 @@ touch .secrets.env
 ```env
 GEMINI_TOKEN=your_google_ai_studio_key_here
 DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 ```
 
 See [How to Get Your Keys](#how-to-get-your-keys) below if you don't have these yet.
@@ -142,9 +143,12 @@ curl -s -X POST http://localhost:5000/webhook \
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `GEMINI_TOKEN` | Yes | — | Google AI Studio API key. Used to call `gemini-2.5-flash`. |
-| `DISCORD_WEBHOOK_URL` | Yes | — | Full Discord webhook URL for the target channel. |
+| `DISCORD_WEBHOOK_URL` | No | — | Full Discord webhook URL for the target channel. |
+| `SLACK_WEBHOOK_URL` | No | — | Slack incoming webhook URL. Set to enable Slack notifications. |
 | `PORT` | No | `5000` | Port the Flask/gunicorn server binds to inside the container. |
 | `DISCORD_DISABLED` | No | `false` | Set to `true` to suppress all Discord posts. Useful for testing. |
+
+At least one notification target (`DISCORD_WEBHOOK_URL` or `SLACK_WEBHOOK_URL`) should be set, or Sentinel will process and enrich alerts but silently discard them.
 
 These variables are loaded from `.secrets.env` by `docker-compose.yml`. If you run Sentinel without Docker, `main.py` loads `.secrets.env` directly via `python-dotenv` — no separate `.env` file needed.
 
@@ -173,6 +177,19 @@ The free tier is sufficient for homelab alerting volumes. There is no billing re
 6. Paste it as `DISCORD_WEBHOOK_URL` in `.secrets.env`
 
 The URL format looks like: `https://discord.com/api/webhooks/1234567890/AbCdEfGh...`
+
+### SLACK_WEBHOOK_URL
+
+1. Open your Slack workspace and go to **Apps** → search for **Incoming WebHooks**
+2. Click **Add to Slack**
+3. Choose the channel you want alerts posted to (or create a dedicated `#alerts` channel)
+4. Click **Add Incoming WebHooks Integration**
+5. Copy the **Webhook URL** shown on the confirmation page
+6. Paste it as `SLACK_WEBHOOK_URL` in `.secrets.env`
+
+The URL format looks like: `https://hooks.slack.com/services/T.../B.../...`
+
+Sentinel posts a Block Kit message with a header, severity badge, AI insight, and suggested actions. The `text` field also provides a plain-text fallback for push notifications.
 
 ---
 
@@ -459,11 +476,12 @@ main.py                # Entry point, loads .secrets.env, creates WSGI app
 3. Add a branch in `parse_alert()`: `if _is_yourformat(data): return _parse_yourformat(data)`
 4. Set `source="your_format"` in the returned `NormalizedAlert`
 
-**Adding a new notification target (Slack, Teams, PagerDuty):**
+**Adding a new notification target (Teams, PagerDuty, Telegram, etc.):**
 
-1. Create `app/slack_client.py` (or similar) with a `post_alert(alert, ai) -> None` function
-2. Import and call it in `app/webhook.py` alongside the existing `discord_client.post_alert()` call
-3. Add the relevant env var(s) and document them in the table above
+1. Create `app/yourplatform_client.py` with a `post_alert(alert: NormalizedAlert, ai: dict) -> None` function
+2. The function should silently return if its env var(s) are not set
+3. Import the module in `app/notify.py` and add it to `_CLIENTS`
+4. Add the relevant env var(s) and document them in the table above
 
 **Changing severity thresholds:**
 
@@ -473,7 +491,7 @@ Status-to-severity mapping for Uptime Kuma is in `_uptime_kuma_status()` in `ale
 
 ## Running the Test Suite
 
-43 unit tests cover all three alert parsers, the Discord embed builder, and the Flask error handlers. No network access required — all tests run against pure functions and the Flask test client.
+68 unit tests cover all three alert parsers, the Discord embed builder, the Slack Block Kit builder, the notification dispatcher, and the Flask error handlers. No network access required — all tests run against pure functions, mocks, and the Flask test client.
 
 ```bash
 # Create a virtual environment (first time only)
@@ -485,15 +503,17 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Expected output: `43 passed`
+Expected output: `68 passed`
 
 **Test coverage by file:**
 
 | File | Tests | What's covered |
 |---|---|---|
-| `tests/test_alert_parser.py` | 23 | Uptime Kuma / Grafana / generic format detection, field mapping, edge cases |
-| `tests/test_discord_client.py` | 17 | Embed builder: colors, title truncation, field length, malformed AI response handling |
-| `tests/test_app.py` | 3 | Flask error handlers: 404, 405, 413 all return JSON |
+| `tests/test_alert_parser.py` | 24 | Uptime Kuma / Grafana / generic format detection, field mapping, edge cases |
+| `tests/test_discord_client.py` | 17 | Discord embed builder: colors, title truncation, field length, malformed AI response |
+| `tests/test_slack_client.py` | 18 | Slack Block Kit builder: header cap, emoji, block structure, `post_alert` send/skip |
+| `tests/test_notify.py` | 5 | Dispatcher: all clients called, errors isolated per-platform, list returned |
+| `tests/test_app.py` | 4 | Flask error handlers: 404, 405, 413, unhandled exception all return JSON |
 
 When adding a new alert source parser, add at minimum: a detection test, a happy-path parse test, and an edge case test (empty payload, unknown status value).
 

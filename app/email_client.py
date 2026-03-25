@@ -125,7 +125,7 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     msg.attach(MIMEText(_build_plain(alert, ai), "plain"))
     msg.attach(MIMEText(_build_html(alert, ai), "html"))
 
-    with smtplib.SMTP(host, port) as smtp:
+    with smtplib.SMTP(host, port, timeout=10) as smtp:
         smtp.ehlo()
         smtp.starttls()
         smtp.login(user, password)

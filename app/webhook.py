@@ -33,11 +33,15 @@ def webhook():
         return jsonify({"error": "Invalid or missing JSON body"}), 400
 
     # 1. Normalize
-    alert = parse_alert(data)
+    try:
+        alert = parse_alert(data)
+    except Exception as exc:
+        logger.error("Alert parsing failed: %s", exc)
+        return jsonify({"error": "Failed to parse alert payload", "detail": str(exc)}), 500
     logger.info("Alert received: source=%s service=%s status=%s",
                 alert.source, alert.service_name, alert.status)
 
-    # 2. Claude analysis
+    # 2. AI analysis
     ai = get_ai_insight(alert)
     logger.info("AI insight generated for %s", alert.service_name)
 
@@ -45,7 +49,7 @@ def webhook():
     discord_error = None
     try:
         post_alert(alert, ai)
-    except requests.HTTPError as exc:
+    except requests.RequestException as exc:
         discord_error = str(exc)
         logger.warning("Discord post failed: %s", discord_error)
 

@@ -14,11 +14,11 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
-from . import discord_client, slack_client, telegram_client, ntfy_client
+from . import discord_client, slack_client, telegram_client, ntfy_client, email_client
 
 logger = logging.getLogger(__name__)
 
-_CLIENTS: list[types.ModuleType] = [discord_client, slack_client, telegram_client, ntfy_client]
+_CLIENTS: list[types.ModuleType] = [discord_client, slack_client, telegram_client, ntfy_client, email_client]
 
 
 def dispatch(alert: NormalizedAlert, ai: dict[str, Any]) -> list[str]:

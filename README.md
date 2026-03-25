@@ -148,6 +148,11 @@ curl -s -X POST http://localhost:5000/webhook \
 | `TELEGRAM_BOT_TOKEN` | No | — | Telegram bot token from BotFather. Required for Telegram notifications. |
 | `TELEGRAM_CHAT_ID` | No | — | Telegram chat ID to send alerts to. Required for Telegram notifications. |
 | `NTFY_URL` | No | — | Full ntfy topic URL, e.g. `https://ntfy.sh/your-topic` or self-hosted. |
+| `SMTP_HOST` | No | — | SMTP server hostname, e.g. `smtp.gmail.com`. Required for email alerts. |
+| `SMTP_PORT` | No | `587` | SMTP port. 587 for STARTTLS (recommended), 465 for SSL. |
+| `SMTP_USER` | No | — | SMTP login username (your email address). Required for email alerts. |
+| `SMTP_PASSWORD` | No | — | SMTP password or app password. Required for email alerts. |
+| `SMTP_TO` | No | `SMTP_USER` | Alert recipient address. Defaults to sending to yourself. |
 | `PORT` | No | `5000` | Port the Flask/gunicorn server binds to inside the container. |
 | `DISCORD_DISABLED` | No | `false` | Set to `true` to suppress all Discord posts. Useful for testing. |
 
@@ -494,7 +499,7 @@ Status-to-severity mapping for Uptime Kuma is in `_uptime_kuma_status()` in `ale
 
 ## Running the Test Suite
 
-106 unit tests cover all three alert parsers, the Discord embed builder, the Slack Block Kit builder, the Telegram message builder, the Ntfy payload builder, the notification dispatcher, and the Flask error handlers. No network access required — all tests run against pure functions, mocks, and the Flask test client.
+126 unit tests cover all three alert parsers, the Discord embed builder, the Slack Block Kit builder, the Telegram message builder, the Ntfy payload builder, the email builder, the notification dispatcher, and the Flask error handlers. No network access required — all tests run against pure functions, mocks, and the Flask test client.
 
 ```bash
 # Create a virtual environment (first time only)
@@ -506,7 +511,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Expected output: `106 passed`
+Expected output: `126 passed`
 
 **Test coverage by file:**
 
@@ -517,6 +522,7 @@ Expected output: `106 passed`
 | `tests/test_slack_client.py` | 18 | Slack Block Kit builder: header cap, emoji, block structure, `post_alert` send/skip |
 | `tests/test_telegram_client.py` | 22 | Telegram HTML message: escaping, emoji, formatting, `post_alert` send/skip |
 | `tests/test_ntfy_client.py` | 16 | Ntfy payload: priority/tag mapping, message content, `post_alert` send/skip |
+| `tests/test_email_client.py` | 20 | Email subject/plain/HTML builders, escaping, SMTP send/skip, default recipient |
 | `tests/test_notify.py` | 5 | Dispatcher: all clients called, errors isolated per-platform, list returned |
 | `tests/test_app.py` | 4 | Flask error handlers: 404, 405, 413, unhandled exception all return JSON |
 

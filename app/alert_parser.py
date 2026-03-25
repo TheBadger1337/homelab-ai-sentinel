@@ -141,7 +141,7 @@ def _parse_generic(data: dict) -> NormalizedAlert:
     elif status_str in ("up", "1", "true", "ok", "resolved", "normal"):
         status, severity = "up", "info"
     elif status_str in ("warning", "warn", "degraded"):
-        status, severity = status_str, "warning"
+        status, severity = "warning", "warning"
     else:
         status, severity = "unknown", "warning"
 

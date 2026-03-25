@@ -107,8 +107,10 @@ def get_ai_insight(alert: NormalizedAlert) -> dict:
             raw = raw.split("\n", 1)[1]
             raw = raw.rsplit("```", 1)[0].strip()
         return json.loads(raw)
-    except (json.JSONDecodeError, KeyError, IndexError) as exc:
+    except (json.JSONDecodeError, KeyError, IndexError, AttributeError) as exc:
         return _fallback(f"parse error: {exc}")
     except requests.RequestException as exc:
         safe_msg = str(exc).replace(token, "***")  # mask API key
         return _fallback(f"API error: {safe_msg}")
+    except Exception as exc:  # noqa: BLE001 — intentional broad catch; must never raise
+        return _fallback(f"unexpected error: {type(exc).__name__}")

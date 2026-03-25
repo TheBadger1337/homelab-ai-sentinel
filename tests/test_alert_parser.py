@@ -207,3 +207,12 @@ def test_non_dict_input_rejected_at_route():
     # This test confirms parse_alert itself is not called with lists/scalars —
     # validation happens in webhook.py. Documented here for clarity.
     pass
+
+
+def test_generic_warning_status_normalized():
+    # "warn" and "degraded" must normalize to "warning" — not left as raw strings.
+    # Raw values have no entry in _STATUS_EMOJI and produce the wrong embed emoji.
+    for raw in ("warn", "degraded"):
+        alert = parse_alert({"service": "svc", "status": raw})
+        assert alert.status == "warning", f"status not normalized for {raw!r}"
+        assert alert.severity == "warning"

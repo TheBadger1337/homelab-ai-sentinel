@@ -52,6 +52,8 @@ def _build_embed(alert: NormalizedAlert, ai: dict) -> dict:
     ]
 
     insight = ai.get("insight", "No insight available.")
+    if not isinstance(insight, str):
+        insight = str(insight)
     fields.append({
         "name": "🤖 AI Insight",
         "value": insight[:1024],
@@ -59,6 +61,8 @@ def _build_embed(alert: NormalizedAlert, ai: dict) -> dict:
     })
 
     actions = ai.get("suggested_actions", [])
+    if not isinstance(actions, list):
+        actions = []
     if actions:
         action_text = "\n".join(f"• {a}" for a in actions[:5])
         fields.append({

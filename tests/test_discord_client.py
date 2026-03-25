@@ -137,3 +137,22 @@ def test_embed_has_required_keys():
 def test_footer_text():
     embed = _build_embed(_make_alert(), _make_ai())
     assert embed["footer"]["text"] == "Homelab AI Sentinel"
+
+
+# ---------------------------------------------------------------------------
+# Malformed AI response handling
+# ---------------------------------------------------------------------------
+
+def test_non_list_actions_treated_as_empty():
+    # Malformed AI response: suggested_actions is a string, not a list
+    embed = _build_embed(_make_alert(), _make_ai(suggested_actions="Check logs"))
+    action_fields = [f for f in embed["fields"] if "Actions" in f["name"]]
+    assert not action_fields  # treated as no actions — field omitted
+
+
+def test_non_string_insight_coerced_to_string():
+    # Malformed AI response: insight is a number
+    embed = _build_embed(_make_alert(), _make_ai(insight=42))
+    insight_fields = [f for f in embed["fields"] if "Insight" in f["name"]]
+    assert insight_fields
+    assert "42" in insight_fields[0]["value"]

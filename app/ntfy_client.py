@@ -46,7 +46,7 @@ def _build_payload(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]
     if actions:
         lines.append("")
         for action in actions[:5]:
-            lines.append(f"• {action}")
+            lines.append(f"• {str(action)}")
 
     return {
         "title": title[:250],

@@ -85,11 +85,9 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     """
     Post the alert embed to Discord.
     Raises requests.HTTPError on non-2xx response.
-    Silently skips if DISCORD_DISABLED=true or no URL configured.
+    Silently skips if no URL configured.
+    Disable via DISCORD_DISABLED=true (handled centrally in notify.py).
     """
-    if os.environ.get("DISCORD_DISABLED", "").lower() == "true":
-        return
-
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     if not webhook_url:
         return

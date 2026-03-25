@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from app.alert_parser import NormalizedAlert
-from app.notify import dispatch
+from app.notify import dispatch, _is_disabled
 
 
 def _make_alert(**kwargs):
@@ -58,7 +58,8 @@ def test_dispatch_collects_requests_error_without_blocking():
     # Slack still called despite Discord failing
     mock_slack.post_alert.assert_called_once_with(alert, _AI)
     assert len(errors) == 1
-    assert "discord" in errors[0]
+    # Use any() — parallel dispatch does not guarantee error list order
+    assert any("discord" in e for e in errors)
 
 
 def test_dispatch_collects_unexpected_error_without_blocking():
@@ -75,7 +76,7 @@ def test_dispatch_collects_unexpected_error_without_blocking():
 
     mock_slack.post_alert.assert_called_once_with(alert, _AI)
     assert len(errors) == 1
-    assert "discord" in errors[0]
+    assert any("discord" in e for e in errors)
 
 
 def test_dispatch_returns_empty_list_on_success():
@@ -87,6 +88,28 @@ def test_dispatch_returns_empty_list_on_success():
         errors = dispatch(alert, _AI)
 
     assert errors == []
+
+
+def test_disabled_client_is_skipped(monkeypatch):
+    """A client with {NAME}_DISABLED=true must not have post_alert called."""
+    alert = _make_alert()
+    mock_discord = MagicMock()
+    mock_discord.__name__ = "app.discord_client"
+    monkeypatch.setenv("DISCORD_DISABLED", "true")
+
+    with patch("app.notify._CLIENTS", [mock_discord]):
+        errors = dispatch(alert, _AI)
+
+    mock_discord.post_alert.assert_not_called()
+    assert errors == []
+
+
+def test_is_disabled_returns_false_when_not_set(monkeypatch):
+    """_is_disabled must return False when the env var is absent."""
+    mock_client = MagicMock()
+    mock_client.__name__ = "app.telegram_client"
+    monkeypatch.delenv("TELEGRAM_DISABLED", raising=False)
+    assert _is_disabled(mock_client) is False
 
 
 def test_dispatch_multiple_failures_all_collected():

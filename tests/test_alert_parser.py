@@ -1,8 +1,8 @@
 """
 Unit tests for alert_parser.py
 
-Covers format detection and field mapping for all three sources:
-Uptime Kuma, Grafana, and generic JSON.
+Covers format detection and field mapping for all six sources:
+Uptime Kuma, Grafana, Alertmanager, Healthchecks.io, Netdata, and generic JSON.
 """
 
 from app.alert_parser import parse_alert
@@ -74,6 +74,7 @@ def test_uptime_kuma_none_values_excluded_from_details():
 
 _GRAFANA_FIRING = {
     "status": "firing",
+    "orgId": 1,
     "alerts": [
         {
             "status": "firing",
@@ -115,7 +116,7 @@ def test_grafana_unknown_status():
 
 
 def test_grafana_empty_alerts_list():
-    data = {"status": "firing", "alerts": [], "groupLabels": {}, "version": "1"}
+    data = {"status": "firing", "orgId": 1, "alerts": [], "groupLabels": {}, "version": "1"}
     alert = parse_alert(data)
     assert alert.source == "grafana"
     assert alert.service_name == "Unknown Service"
@@ -226,6 +227,7 @@ def test_grafana_resolved_firing_count_zero_preserved():
     # The falsy filter `if v` would drop it; `if v is not None` preserves it.
     data = {
         "status": "resolved",
+        "orgId": 1,
         "alerts": [],
         "groupLabels": {"alertname": "CPU"},
         "commonLabels": {},
@@ -235,3 +237,500 @@ def test_grafana_resolved_firing_count_zero_preserved():
     alert = parse_alert(data)
     assert "firing_count" in alert.details
     assert alert.details["firing_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Prometheus Alertmanager
+# ---------------------------------------------------------------------------
+
+_ALERTMANAGER_FIRING = {
+    "version": "4",
+    "receiver": "sentinel",
+    "status": "firing",
+    "groupLabels": {"alertname": "HighMemoryUsage"},
+    "commonLabels": {"alertname": "HighMemoryUsage", "severity": "critical", "job": "node"},
+    "commonAnnotations": {"summary": "Memory usage above 90%", "description": "RSS > 90%"},
+    "alerts": [
+        {
+            "status": "firing",
+            "labels": {"alertname": "HighMemoryUsage", "instance": "server1:9100", "severity": "critical"},
+            "annotations": {"summary": "Memory usage above 90%"},
+        }
+    ],
+    "externalURL": "http://alertmanager:9093",
+}
+
+
+def test_alertmanager_detected():
+    assert parse_alert(_ALERTMANAGER_FIRING).source == "alertmanager"
+
+
+def test_alertmanager_not_detected_as_grafana():
+    # Alertmanager has no orgId — must not be routed to Grafana parser
+    assert parse_alert(_ALERTMANAGER_FIRING).source != "grafana"
+
+
+def test_alertmanager_firing():
+    alert = parse_alert(_ALERTMANAGER_FIRING)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert alert.service_name == "HighMemoryUsage"
+    assert "Memory usage" in alert.message
+
+
+def test_alertmanager_resolved():
+    data = {**_ALERTMANAGER_FIRING, "status": "resolved"}
+    alert = parse_alert(data)
+    assert alert.status == "up"
+
+
+def test_alertmanager_severity_from_labels():
+    data = {**_ALERTMANAGER_FIRING,
+            "commonLabels": {"alertname": "DiskWarning", "severity": "warning"}}
+    alert = parse_alert(data)
+    assert alert.severity == "warning"
+
+
+def test_alertmanager_node_exporter_labels_in_details():
+    alert = parse_alert(_ALERTMANAGER_FIRING)
+    assert alert.details.get("job") == "node"
+    assert "instance" in alert.details
+
+
+def test_alertmanager_receiver_in_details():
+    alert = parse_alert(_ALERTMANAGER_FIRING)
+    assert alert.details.get("receiver") == "sentinel"
+
+
+def test_alertmanager_grafana_with_orgid_not_misdetected():
+    # A Grafana payload with orgId must NOT be parsed as Alertmanager
+    grafana_payload = {**_ALERTMANAGER_FIRING, "orgId": 1}
+    alert = parse_alert(grafana_payload)
+    assert alert.source == "grafana"
+
+
+# ---------------------------------------------------------------------------
+# Healthchecks.io
+# ---------------------------------------------------------------------------
+
+_HEALTHCHECKS_DOWN = {
+    "check_id": "2bd2e0c3-3cc7-4b4d-90b0-9e570000ffff",
+    "name": "Daily backup",
+    "slug": "daily-backup",
+    "status": "down",
+    "period": 86400,
+    "grace": 3600,
+    "last_ping": "2026-03-25T10:00:00+00:00",
+    "ping_url": "https://hc-ping.com/2bd2e0c3-3cc7-4b4d-90b0-9e570000ffff",
+}
+
+
+def test_healthchecks_detected():
+    assert parse_alert(_HEALTHCHECKS_DOWN).source == "healthchecks"
+
+
+def test_healthchecks_down():
+    alert = parse_alert(_HEALTHCHECKS_DOWN)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert alert.service_name == "Daily backup"
+    assert "check failed" in alert.message
+
+
+def test_healthchecks_grace():
+    data = {**_HEALTHCHECKS_DOWN, "status": "grace"}
+    alert = parse_alert(data)
+    assert alert.status == "warning"
+    assert alert.severity == "warning"
+    assert "grace" in alert.message
+
+
+def test_healthchecks_up():
+    data = {**_HEALTHCHECKS_DOWN, "status": "up"}
+    alert = parse_alert(data)
+    assert alert.status == "up"
+    assert alert.severity == "info"
+
+
+def test_healthchecks_details_populated():
+    alert = parse_alert(_HEALTHCHECKS_DOWN)
+    assert alert.details["check_id"] == "2bd2e0c3-3cc7-4b4d-90b0-9e570000ffff"
+    assert alert.details["period_seconds"] == 86400
+    assert "last_ping" in alert.details
+
+
+def test_healthchecks_not_triggered_without_slug():
+    # A payload with check_id but no slug should fall to generic
+    data = {"check_id": "some-uuid", "status": "down", "service": "backup"}
+    assert parse_alert(data).source == "generic"
+
+
+# ---------------------------------------------------------------------------
+# Netdata
+# ---------------------------------------------------------------------------
+
+_NETDATA_CRITICAL = {
+    "hostname": "server1",
+    "chart": "system.cpu",
+    "alarm": "10min_cpu_usage",
+    "status": "CRITICAL",
+    "old_status": "WARNING",
+    "value": 95.3,
+    "old_value": 72.1,
+    "units": "%",
+    "info": "average cpu utilization",
+    "duration": 300,
+    "family": "cpu",
+    "priority": 1000,
+    "roles": "sysadmin",
+}
+
+
+def test_netdata_detected():
+    assert parse_alert(_NETDATA_CRITICAL).source == "netdata"
+
+
+def test_netdata_critical():
+    alert = parse_alert(_NETDATA_CRITICAL)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert "server1" in alert.service_name
+    assert "10min_cpu_usage" in alert.service_name
+
+
+def test_netdata_warning():
+    data = {**_NETDATA_CRITICAL, "status": "WARNING"}
+    alert = parse_alert(data)
+    assert alert.status == "warning"
+    assert alert.severity == "warning"
+
+
+def test_netdata_clear():
+    data = {**_NETDATA_CRITICAL, "status": "CLEAR"}
+    alert = parse_alert(data)
+    assert alert.status == "up"
+    assert alert.severity == "info"
+
+
+def test_netdata_message_contains_value_and_units():
+    alert = parse_alert(_NETDATA_CRITICAL)
+    assert "95.3" in alert.message
+    assert "%" in alert.message
+
+
+def test_netdata_details_populated():
+    alert = parse_alert(_NETDATA_CRITICAL)
+    assert alert.details["hostname"] == "server1"
+    assert alert.details["chart"] == "system.cpu"
+    assert alert.details["value"] == 95.3
+    assert alert.details["old_status"] == "WARNING"
+
+
+def test_netdata_not_triggered_without_chart():
+    # Must have all three: alarm + chart + hostname
+    data = {"alarm": "cpu", "hostname": "server1", "status": "CRITICAL"}
+    assert parse_alert(data).source == "generic"
+
+
+# ---------------------------------------------------------------------------
+# Zabbix
+# ---------------------------------------------------------------------------
+
+_ZABBIX_PROBLEM = {
+    "event_id": "12345",
+    "trigger_id": "678",
+    "trigger_name": "High CPU load",
+    "trigger_severity": "High",
+    "trigger_status": "PROBLEM",
+    "host_name": "server1",
+    "host_ip": "192.168.1.10",
+    "event_message": "CPU usage is above 90%",
+    "item_name": "CPU utilization",
+    "item_value": "93.5",
+}
+
+
+def test_zabbix_detected():
+    assert parse_alert(_ZABBIX_PROBLEM).source == "zabbix"
+
+
+def test_zabbix_problem():
+    alert = parse_alert(_ZABBIX_PROBLEM)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert alert.service_name == "server1"
+    assert "CPU" in alert.message
+
+
+def test_zabbix_resolved():
+    data = {**_ZABBIX_PROBLEM, "trigger_status": "RESOLVED"}
+    alert = parse_alert(data)
+    assert alert.status == "up"
+    assert alert.severity == "info"
+
+
+def test_zabbix_severity_mapping():
+    for raw, expected in [("disaster", "critical"), ("high", "critical"),
+                          ("average", "warning"), ("warning", "warning"),
+                          ("information", "info"), ("not classified", "info")]:
+        data = {**_ZABBIX_PROBLEM, "trigger_severity": raw}
+        alert = parse_alert(data)
+        assert alert.severity == expected, f"wrong severity for {raw!r}"
+
+
+def test_zabbix_details_populated():
+    alert = parse_alert(_ZABBIX_PROBLEM)
+    assert alert.details["trigger"] == "High CPU load"
+    assert alert.details["item_value"] == "93.5"
+    assert alert.details["host_ip"] == "192.168.1.10"
+
+
+def test_zabbix_not_triggered_without_severity():
+    data = {"trigger_name": "CPU load", "host_name": "server1", "status": "PROBLEM"}
+    assert parse_alert(data).source == "generic"
+
+
+# ---------------------------------------------------------------------------
+# Checkmk
+# ---------------------------------------------------------------------------
+
+_CHECKMK_SERVICE_CRIT = {
+    "NOTIFICATIONTYPE": "PROBLEM",
+    "HOSTNAME": "web-server",
+    "HOSTADDRESS": "192.168.1.20",
+    "SERVICEDESC": "HTTP",
+    "SERVICESTATE": "CRIT",
+    "SERVICEOUTPUT": "Connection refused",
+    "CONTACTNAME": "admin",
+}
+
+_CHECKMK_HOST_DOWN = {
+    "NOTIFICATIONTYPE": "PROBLEM",
+    "HOSTNAME": "router",
+    "HOSTADDRESS": "192.168.1.1",
+    "HOSTSTATE": "DOWN",
+    "HOSTOUTPUT": "PING CRITICAL - Packet loss = 100%",
+}
+
+
+def test_checkmk_detected():
+    assert parse_alert(_CHECKMK_SERVICE_CRIT).source == "checkmk"
+
+
+def test_checkmk_service_critical():
+    alert = parse_alert(_CHECKMK_SERVICE_CRIT)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert "web-server" in alert.service_name
+    assert "HTTP" in alert.service_name
+    assert "Connection refused" in alert.message
+
+
+def test_checkmk_host_down():
+    alert = parse_alert(_CHECKMK_HOST_DOWN)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert alert.service_name == "router"
+
+
+def test_checkmk_recovery():
+    data = {**_CHECKMK_SERVICE_CRIT, "NOTIFICATIONTYPE": "RECOVERY", "SERVICESTATE": "OK"}
+    alert = parse_alert(data)
+    assert alert.status == "up"
+    assert alert.severity == "info"
+
+
+def test_checkmk_service_warn():
+    data = {**_CHECKMK_SERVICE_CRIT, "SERVICESTATE": "WARN"}
+    alert = parse_alert(data)
+    assert alert.severity == "warning"
+
+
+def test_checkmk_details_include_host_and_service():
+    alert = parse_alert(_CHECKMK_SERVICE_CRIT)
+    assert alert.details["host"] == "web-server"
+    assert alert.details["service"] == "HTTP"
+
+
+def test_checkmk_not_triggered_without_notificationtype():
+    data = {"HOSTNAME": "server1", "HOSTSTATE": "DOWN"}
+    assert parse_alert(data).source == "generic"
+
+
+# ---------------------------------------------------------------------------
+# What's Up Docker (WUD)
+# ---------------------------------------------------------------------------
+
+_WUD_UPDATE = {
+    "id": "local_portainer_latest",
+    "name": "portainer",
+    "displayName": "portainer/portainer-ce",
+    "image": {
+        "name": "portainer/portainer-ce",
+        "tag": {"value": "2.19.4", "semver": True},
+        "registry": {"name": "hub", "url": "https://registry-1.docker.io"},
+    },
+    "result": {"tag": "2.19.5"},
+    "status": "UpdateAvailable",
+    "updateAvailable": True,
+}
+
+
+def test_wud_detected():
+    assert parse_alert(_WUD_UPDATE).source == "wud"
+
+
+def test_wud_update_available():
+    alert = parse_alert(_WUD_UPDATE)
+    assert alert.status == "warning"
+    assert alert.severity == "warning"
+    assert "2.19.4" in alert.message
+    assert "2.19.5" in alert.message
+
+
+def test_wud_up_to_date():
+    data = {**_WUD_UPDATE, "updateAvailable": False, "status": "UpToDate"}
+    alert = parse_alert(data)
+    assert alert.status == "up"
+    assert alert.severity == "info"
+
+
+def test_wud_service_name_uses_display_name():
+    alert = parse_alert(_WUD_UPDATE)
+    assert "portainer" in alert.service_name.lower()
+
+
+def test_wud_details_include_tags():
+    alert = parse_alert(_WUD_UPDATE)
+    assert alert.details["current_tag"] == "2.19.4"
+    assert alert.details["new_tag"] == "2.19.5"
+
+
+def test_wud_not_triggered_without_image():
+    data = {"updateAvailable": True, "name": "nginx"}
+    assert parse_alert(data).source == "generic"
+
+
+# ---------------------------------------------------------------------------
+# Docker Events (Portainer / Docker API)
+# ---------------------------------------------------------------------------
+
+_DOCKER_DIE = {
+    "status": "die",
+    "id": "abc123def456",
+    "from": "nginx:latest",
+    "Type": "container",
+    "Action": "die",
+    "Actor": {
+        "ID": "abc123def456",
+        "Attributes": {
+            "exitCode": "137",
+            "image": "nginx:latest",
+            "name": "my-nginx",
+        },
+    },
+    "scope": "local",
+    "time": 1234567890,
+}
+
+
+def test_docker_events_detected():
+    assert parse_alert(_DOCKER_DIE).source == "docker_events"
+
+
+def test_docker_die_is_critical():
+    alert = parse_alert(_DOCKER_DIE)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert "my-nginx" in alert.service_name
+    assert "137" in alert.message
+
+
+def test_docker_start_is_info():
+    data = {**_DOCKER_DIE, "Action": "start",
+            "Actor": {"ID": "abc123", "Attributes": {"name": "my-nginx", "image": "nginx:latest"}}}
+    alert = parse_alert(data)
+    assert alert.status == "up"
+    assert alert.severity == "info"
+
+
+def test_docker_health_unhealthy():
+    data = {**_DOCKER_DIE, "Action": "health_status: unhealthy",
+            "Actor": {"ID": "abc123", "Attributes": {"name": "my-nginx", "image": "nginx:latest"}}}
+    alert = parse_alert(data)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert "unhealthy" in alert.message
+
+
+def test_docker_health_healthy():
+    data = {**_DOCKER_DIE, "Action": "health_status: healthy",
+            "Actor": {"ID": "abc123", "Attributes": {"name": "my-nginx", "image": "nginx:latest"}}}
+    alert = parse_alert(data)
+    assert alert.status == "up"
+
+
+def test_docker_stop_is_warning():
+    data = {**_DOCKER_DIE, "Action": "stop",
+            "Actor": {"ID": "abc123", "Attributes": {"name": "my-nginx", "image": "nginx:latest"}}}
+    alert = parse_alert(data)
+    assert alert.severity == "warning"
+
+
+def test_docker_events_not_triggered_without_actor():
+    data = {"Type": "container", "Action": "die", "status": "die"}
+    assert parse_alert(data).source == "generic"
+
+
+# ---------------------------------------------------------------------------
+# Glances
+# ---------------------------------------------------------------------------
+
+_GLANCES_CPU_CRIT = {
+    "glances_host": "homelab-server",
+    "glances_type": "cpu",
+    "glances_state": "CRITICAL",
+    "glances_value": 97.2,
+    "glances_min": 92.0,
+    "glances_max": 99.1,
+    "glances_duration": 120,
+    "glances_top": ["python3", "node"],
+}
+
+
+def test_glances_detected():
+    assert parse_alert(_GLANCES_CPU_CRIT).source == "glances"
+
+
+def test_glances_critical():
+    alert = parse_alert(_GLANCES_CPU_CRIT)
+    assert alert.status == "down"
+    assert alert.severity == "critical"
+    assert "homelab-server" in alert.service_name
+    assert "cpu" in alert.service_name
+    assert "97.2" in alert.message
+
+
+def test_glances_warning_state():
+    data = {**_GLANCES_CPU_CRIT, "glances_state": "WARNING"}
+    alert = parse_alert(data)
+    assert alert.status == "warning"
+    assert alert.severity == "warning"
+
+
+def test_glances_careful_state():
+    data = {**_GLANCES_CPU_CRIT, "glances_state": "CAREFUL"}
+    alert = parse_alert(data)
+    assert alert.severity == "warning"
+
+
+def test_glances_details_populated():
+    alert = parse_alert(_GLANCES_CPU_CRIT)
+    assert alert.details["hostname"] == "homelab-server"
+    assert alert.details["value"] == 97.2
+    assert alert.details["duration"] == 120
+
+
+def test_glances_not_triggered_without_type():
+    data = {"glances_host": "server1", "status": "CRITICAL"}
+    assert parse_alert(data).source == "generic"

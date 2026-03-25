@@ -17,11 +17,20 @@ services:
       start_period: 10s
 
   signal-cli-rest-api:
-    image: bbernhard/signal-cli-rest-api:latest
+    # Pinned to a specific digest to prevent silent supply-chain updates.
+    # To update: docker pull bbernhard/signal-cli-rest-api:latest, then
+    # update this digest with: docker image inspect --format '{{index .RepoDigests 0}}'
+    image: bbernhard/signal-cli-rest-api@sha256:c51c117d030d051f0cf2ef17f2cb135f1301810f9526a224be67daded8f272d6
     container_name: signal-cli-rest-api
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # Bound to loopback only — required for QR code account linking via
+      # browser on the same host. Remove entirely after initial setup if your
+      # host and browser are different machines (use LAN IP instead of 127.0.0.1
+      # during setup, then remove this mapping once the account is linked).
+      # The sentinel container reaches this service via the Docker network
+      # (http://signal-cli-rest-api:8080) regardless of this port mapping.
+      - "127.0.0.1:8080:8080"
     volumes:
       - signal-data:/home/.local/share/signal-cli
     environment:

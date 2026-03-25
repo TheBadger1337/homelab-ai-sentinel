@@ -29,22 +29,50 @@ Supported notification platforms: **Discord**, **Slack**, **Telegram**, **Ntfy**
 
 ## Architecture
 
-```
-┌──────────────────────┐
-│  Uptime Kuma         │
-│  Grafana             │      ┌─────────────────────────────────┐      ┌─────────────────────┐
-│  Prometheus AM       │─POST▶│       Homelab AI Sentinel       │─────▶│  Gemini 2.5 Flash   │
-│  Healthchecks.io     │ JSON │                                 │◀─────│  (or Claude, GPT,   │
-│  Netdata / Zabbix    │      │  alert_parser.py  (11 parsers)  │      │   Groq, Ollama,     │
-│  Checkmk / WUD       │      │  gemini_client.py (AI enrich)   │      │   LM Studio, etc.)  │
-│  Docker Events       │      │  notify.py        (dispatch)    │      └─────────────────────┘
-│  Glances (poller)    │      └────────────────┬────────────────┘
-│  curl / custom       │                       │
-└──────────────────────┘                       │
-              ┌──────────┬──────────┬──────────┴──┬──────────┬──────────┐
-              ▼          ▼          ▼              ▼          ▼          ▼
-           Discord     Slack    Telegram          Ntfy      Email    WhatsApp
-           Signal     Gotify     Matrix         iMessage
+```mermaid
+flowchart LR
+    subgraph SOURCES["Alert Sources"]
+        direction TB
+        UK[Uptime Kuma]
+        GR[Grafana]
+        AM[Prometheus AM]
+        HC[Healthchecks.io]
+        NZ[Netdata · Zabbix]
+        CW[Checkmk · WUD]
+        DE[Docker Events]
+        GL[Glances poller]
+        CU[curl · custom]
+    end
+
+    subgraph SENTINEL["Homelab AI Sentinel"]
+        direction TB
+        P["alert_parser.py\n11 source parsers"]
+        G["gemini_client.py\nAI enrichment"]
+        N["notify.py\nparallel dispatch"]
+        P --> G --> N
+    end
+
+    subgraph AIBOX["AI Provider"]
+        AI["Gemini 2.5 Flash\nswappable: Claude · GPT · Groq\nOllama · LM Studio · any OpenAI-compatible"]
+    end
+
+    subgraph PLATFORMS["Notification Platforms"]
+        direction TB
+        D[Discord]
+        S[Slack]
+        T[Telegram]
+        NT[Ntfy]
+        E[Email]
+        WA[WhatsApp]
+        SI[Signal]
+        GO[Gotify]
+        MX[Matrix]
+        IM[iMessage]
+    end
+
+    SOURCES -->|POST JSON| P
+    G <-->|AI call / response| AI
+    N --> PLATFORMS
 ```
 
 ---

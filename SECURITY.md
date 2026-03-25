@@ -370,6 +370,8 @@ Examples:
 
 **Not implemented:** Pattern-based redaction (JWT tokens, API key patterns, email addresses, private IPs). For high-sensitivity environments, add a redaction step in `alert_parser.py` before normalization.
 
+**AI provider data retention:** Most commercial AI APIs — including Gemini's free tier — state that API calls may be used to improve their models. Paid tiers typically offer data opt-out or zero-retention agreements. If alert content includes sensitive business data, use a paid tier with a data processing agreement, or switch to a self-hosted model (Ollama, LM Studio) so alert data never leaves your machine. See [ai.google.dev/gemini-api/docs/rate-limits](https://ai.google.dev/gemini-api/docs/rate-limits) for current Gemini data policies.
+
 Recommended additions for sensitive deployments:
 ```python
 import re
@@ -441,6 +443,59 @@ def _redact(text: str) -> str:
 
 ---
 
+### 6D. Credential Exposure via `docker inspect`
+
+**Risk:** Docker stores all environment variables — including `GEMINI_TOKEN`, `DISCORD_WEBHOOK_URL`, and every platform credential — in the container's metadata. Anyone with Docker CLI access on the host can read them in plaintext:
+
+```bash
+docker inspect homelab-ai-sentinel | grep -A 30 '"Env"'
+```
+
+This is standard Docker platform behavior, not a Sentinel bug.
+
+**Mitigations:**
+| Mitigation | Notes |
+|---|---|
+| Restrict Docker group membership | Only accounts that need container management should be in `docker` group or have `sudo docker` access |
+| Use Docker Secrets (Swarm) or a secrets manager | Mounts secrets as files at runtime — does not appear in `docker inspect` output |
+| Rotate exposed credentials immediately | If the host is shared or Docker access is broader than expected, treat all credentials as compromised |
+
+For a single-user homelab, `docker inspect` exposure is an acceptable tradeoff. On a shared host, restrict Docker access explicitly.
+
+---
+
+### 6E. Docker Group Grants Effective Root
+
+**Risk:** Adding a user to the `docker` group is equivalent to granting full root access to the host. A process or user with `docker` group membership can mount `/etc/shadow`, read any file on the host, and escape container isolation:
+
+```bash
+docker run -v /:/host alpine chroot /host  # read entire filesystem
+```
+
+This is not a Sentinel-specific risk — it applies to any Docker deployment.
+
+**Mitigations:**
+- Use **rootless Docker** (`dockerd-rootless-setuptool.sh install`) to run the daemon without `docker` group requirements — see [Docker rootless docs](https://docs.docker.com/engine/security/rootless/)
+- Scope `sudo` rules tightly: `username ALL=(ALL) NOPASSWD: /usr/bin/docker` with no wildcards if rootless is not viable
+- Run Sentinel's systemd service (if used) with a dedicated non-privileged service account
+
+---
+
+### 6F. Plaintext Alert Transit (No TLS)
+
+**Risk:** Gunicorn does not terminate TLS. Alert payloads — including service names, error messages, and any extra context — travel in plaintext between your monitoring tool and Sentinel unless a TLS-terminating reverse proxy is in front.
+
+On a LAN-only deployment this is generally acceptable. On an internet-facing deployment or a network with untrusted segments, anyone on the network path can read alert content and observe AI responses.
+
+**Mitigations:**
+- **LAN-only:** Acceptable. Alert content is not credentials. Keep Sentinel's port off your router's port forwarding.
+- **Internet-facing:** Put Caddy or Nginx in front. Caddy handles TLS certificate provisioning automatically for public domains.
+- **Internal LAN with sensitive content:** Generate a self-signed CA, issue a cert for Sentinel's hostname, and configure your monitoring tool to trust the CA.
+
+This is listed as "out of scope" in the quick reference because Sentinel intentionally does not bundle a TLS implementation — terminating TLS at a dedicated proxy is the correct architectural layer for it.
+
+---
+
 ## Category 7 — Logic / Behavioral Attacks
 
 These are abuse-of-behavior patterns, not technical exploits.
@@ -482,6 +537,7 @@ These are not bugs — they are conscious scope decisions for a homelab tool.
 | No URL/link validation in output | Platform-specific, low priority for trusted networks | Manual review of AI output |
 | No pattern-based secret redaction | False positives on legitimate data; configurable per-deployment | Add regex redaction step in `alert_parser.py` |
 | Dedup cache is per-worker | Multi-worker deployments could process duplicates | Run single worker, or use external Redis |
+| `WEBHOOK_RATE_LIMIT` is per-worker | Each Gunicorn worker maintains its own sliding window; effective global limit is `WEBHOOK_RATE_LIMIT × WORKERS` | Run single worker, or use Nginx `limit_req` upstream |
 | `@everyone` mention stripping not implemented | Not present in standard homelab traffic | Add string replace in formatter if needed |
 
 ---
@@ -530,4 +586,8 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | Non-root container user | ⚠️ Recommended | Add `USER 1000` to Dockerfile |
 | Alert state machine | ❌ Out of scope | Use monitoring tool natively |
 | Per-source rate limiting | ❌ Out of scope | Requires persistent storage |
-| E2E encryption of alerts in transit | ❌ Out of scope | TLS at the Caddy/Nginx layer |
+| E2E encryption of alerts in transit | ❌ Out of scope | TLS at Caddy/Nginx; alert data plaintext without it — see 6F |
+| `docker inspect` credential exposure | ❌ Out of scope | Restrict `docker` group membership; see 6D |
+| Docker group = effective root | ⚠️ Recommended | Use rootless Docker for service accounts; see 6E |
+| `WEBHOOK_RATE_LIMIT` per-worker (not global) | ⚠️ Known limitation | Use Nginx `limit_req` for global enforcement; see Known Limitations |
+| Gemini free tier sends data to Google for model training | ⚠️ Recommended | Use paid tier or self-hosted LLM for sensitive data; see 5C |

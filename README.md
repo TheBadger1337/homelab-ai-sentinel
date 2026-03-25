@@ -30,49 +30,27 @@ Supported notification platforms: **Discord**, **Slack**, **Telegram**, **Ntfy**
 ## Architecture
 
 ```mermaid
-flowchart LR
-    subgraph SOURCES["Alert Sources"]
-        direction TB
-        UK[Uptime Kuma]
-        GR[Grafana]
-        AM[Prometheus AM]
-        HC[Healthchecks.io]
-        NZ[Netdata · Zabbix]
-        CW[Checkmk · WUD]
-        DE[Docker Events]
-        GL[Glances poller]
-        CU[curl · custom]
-    end
+flowchart TD
+    SRC(["Uptime Kuma · Grafana · Prometheus AM · Healthchecks.io
+          Netdata · Zabbix · Checkmk · WUD · Docker Events · Glances · curl"])
 
     subgraph SENTINEL["Homelab AI Sentinel"]
         direction TB
-        P["alert_parser.py\n11 source parsers"]
-        G["gemini_client.py\nAI enrichment"]
-        N["notify.py\nparallel dispatch"]
+        P["alert_parser.py — 11 source parsers"]
+        G["gemini_client.py — AI enrichment"]
+        N["notify.py — parallel dispatch"]
         P --> G --> N
     end
 
-    subgraph AIBOX["AI Provider"]
-        AI["Gemini 2.5 Flash\nswappable: Claude · GPT · Groq\nOllama · LM Studio · any OpenAI-compatible"]
-    end
+    AI(["Gemini 2.5 Flash
+         swappable: Claude · GPT · Groq · Ollama · LM Studio"])
 
-    subgraph PLATFORMS["Notification Platforms"]
-        direction TB
-        D[Discord]
-        S[Slack]
-        T[Telegram]
-        NT[Ntfy]
-        E[Email]
-        WA[WhatsApp]
-        SI[Signal]
-        GO[Gotify]
-        MX[Matrix]
-        IM[iMessage]
-    end
+    PLAT(["Discord · Slack · Telegram · Ntfy · Email
+           WhatsApp · Signal · Gotify · Matrix · iMessage"])
 
-    SOURCES -->|POST JSON| P
-    G <-->|AI call / response| AI
-    N --> PLATFORMS
+    SRC  -->|"POST JSON"| P
+    G   <-->|"AI call / response"| AI
+    N    -->|"10 platforms in parallel"| PLAT
 ```
 
 ---

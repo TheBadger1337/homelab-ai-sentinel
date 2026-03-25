@@ -3,6 +3,7 @@ Normalizes incoming webhook payloads into a common NormalizedAlert format.
 
 Supported sources:
   - Uptime Kuma  (heartbeat + monitor fields)
+  - Grafana      (alerts array + groupLabels fields)
   - Generic JSON (best-effort field mapping)
 """
 
@@ -12,7 +13,7 @@ from typing import Any
 
 @dataclass
 class NormalizedAlert:
-    source: str                          # "uptime_kuma" | "generic"
+    source: str                          # "uptime_kuma" | "grafana" | "generic"
     status: str                          # "up" | "down" | "unknown"
     severity: str                        # "critical" | "warning" | "info"
     service_name: str
@@ -62,6 +63,65 @@ def _parse_uptime_kuma(data: dict) -> NormalizedAlert:
         severity=severity,
         service_name=service_name,
         message=message,
+        details=details,
+    )
+
+
+def _is_grafana(data: dict) -> bool:
+    return isinstance(data.get("alerts"), list) and "groupLabels" in data
+
+
+def _parse_grafana(data: dict) -> NormalizedAlert:
+    top_status = str(data.get("status", "unknown")).lower()
+    if top_status in ("firing", "alerting"):
+        status, severity = "down", "critical"
+    elif top_status == "resolved":
+        status, severity = "up", "info"
+    else:
+        status, severity = "unknown", "warning"
+
+    # Service name: prefer commonLabels.alertname, fall back to groupLabels, then first alert
+    common_labels = data.get("commonLabels", {})
+    group_labels = data.get("groupLabels", {})
+    first_alert = data.get("alerts", [{}])[0]
+    first_labels = first_alert.get("labels", {})
+
+    service_name = (
+        common_labels.get("alertname")
+        or group_labels.get("alertname")
+        or first_labels.get("alertname")
+        or first_labels.get("job")
+        or "Unknown Service"
+    )
+
+    # Message: top-level message field, then annotations
+    common_annotations = data.get("commonAnnotations", {})
+    first_annotations = first_alert.get("annotations", {})
+
+    message = (
+        data.get("message")
+        or common_annotations.get("summary")
+        or common_annotations.get("description")
+        or first_annotations.get("summary")
+        or first_annotations.get("description")
+        or f"{service_name} is {status}"
+    )
+
+    details = {
+        "labels": common_labels or first_labels,
+        "annotations": common_annotations or first_annotations,
+        "firing_count": len([a for a in data.get("alerts", []) if a.get("status") == "firing"]),
+        "generator_url": first_alert.get("generatorURL"),
+        "dashboard_url": first_alert.get("dashboardURL") or None,
+    }
+    details = {k: v for k, v in details.items() if v}
+
+    return NormalizedAlert(
+        source="grafana",
+        status=status,
+        severity=severity,
+        service_name=str(service_name),
+        message=str(message),
         details=details,
     )
 
@@ -120,4 +180,6 @@ def parse_alert(data: dict) -> NormalizedAlert:
     """Entry point: detect format and return a NormalizedAlert."""
     if _is_uptime_kuma(data):
         return _parse_uptime_kuma(data)
+    if _is_grafana(data):
+        return _parse_grafana(data)
     return _parse_generic(data)

@@ -1,0 +1,7 @@
+.git
+.gitignore
+.env
+.env.*
+*.env
+*.md
+setup-repo.sh

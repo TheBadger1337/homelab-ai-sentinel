@@ -709,6 +709,26 @@ git check-ignore -v .secrets.env
 
 **For production or multi-user environments**, consider using Docker Secrets or a secrets manager (HashiCorp Vault, AWS Secrets Manager) instead of a flat `.env` file.
 
+**Never set `FLASK_DEBUG=1` in `.secrets.env`.** Flask's debug mode enables the Werkzeug interactive debugger, which allows arbitrary Python code execution in the process if the PIN is bypassed. The production image runs Gunicorn — debug mode doesn't apply — but if you ever run the app directly with `python main.py` for local testing, leave debug off.
+
+---
+
+### Credential Exposure via `docker inspect`
+
+Docker stores environment variables — including `GEMINI_TOKEN` and `DISCORD_WEBHOOK_URL` — in the container's metadata. Anyone with Docker CLI access on the host can read them in plaintext:
+
+```bash
+docker inspect homelab-ai-sentinel | grep -A 20 '"Env"'
+```
+
+This is a Docker platform behavior, not a Sentinel bug. Mitigations:
+
+- **Restrict Docker access** — only accounts that need to manage containers should be in the `docker` group (or have `sudo docker` access)
+- **Docker Secrets** — for stricter environments, use Docker Swarm secrets or a secrets manager instead of `env_file`; secrets are mounted as files at runtime and don't appear in `docker inspect` output
+- **Rotate exposed keys** — if the host is shared or Docker access is broader than expected, treat those credentials as compromised and rotate them
+
+For a single-user homelab, this is usually an acceptable tradeoff. On a shared host or business network, restrict Docker access explicitly.
+
 ---
 
 ### Dedicated OS User Accounts for AI Processes
@@ -817,6 +837,8 @@ Any device on your local network can POST to `/webhook`. For a homelab this is u
 
 **Reverse proxy / internet-facing — requires authentication:**
 Do not expose Sentinel directly to the internet without authentication. If you route it through Nginx Proxy Manager or Cloudflare Tunnels, add a shared-secret check (see below) or restrict access to your monitoring tool's IP only.
+
+**TLS note:** Gunicorn does not terminate TLS. Alert payloads and the webhook response travel in plaintext unless you put a TLS-terminating reverse proxy (Nginx, Caddy, Cloudflare) in front of Sentinel. For LAN-only deployments this is generally acceptable. For internet-facing or business network deployments, always terminate TLS at the proxy — without it, anyone on the network path can read alert data and observe the AI response.
 
 ---
 

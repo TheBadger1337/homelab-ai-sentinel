@@ -3,7 +3,7 @@ Flask blueprint: POST /webhook
 
 Flow:
   1. Parse incoming JSON payload into a NormalizedAlert
-  2. Call Claude for AI Insight + Suggested Actions
+  2. Call AI provider for Insight + Suggested Actions
   3. Post Discord embed
   4. Return JSON response
 """
@@ -29,8 +29,8 @@ def health():
 @webhook_bp.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"error": "Invalid or missing JSON body"}), 400
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
 
     # 1. Normalize
     try:

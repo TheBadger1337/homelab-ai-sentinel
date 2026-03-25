@@ -83,7 +83,7 @@ def _parse_grafana(data: dict) -> NormalizedAlert:
     # Service name: prefer commonLabels.alertname, fall back to groupLabels, then first alert
     common_labels = data.get("commonLabels", {})
     group_labels = data.get("groupLabels", {})
-    first_alert = data.get("alerts", [{}])[0]
+    first_alert = (data.get("alerts") or [{}])[0]
     first_labels = first_alert.get("labels", {})
 
     service_name = (

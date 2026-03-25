@@ -50,6 +50,19 @@ Respond with this exact JSON schema:
 """
 
 
+_FIELD_MAX = 500  # max chars for any single alert field sent to the AI prompt
+
+
+def _fallback(reason: str) -> dict:
+    return {
+        "insight": f"AI analysis unavailable ({reason}).",
+        "suggested_actions": [
+            "Check the raw alert payload for details.",
+            "Review service logs manually.",
+        ],
+    }
+
+
 def get_ai_insight(alert: NormalizedAlert) -> dict:
     """
     Call Gemini and return {"insight": str, "suggested_actions": list[str]}.
@@ -57,23 +70,18 @@ def get_ai_insight(alert: NormalizedAlert) -> dict:
     """
     token = os.environ.get("GEMINI_TOKEN", "")
     if not token:
-        return {
-            "insight": "AI analysis unavailable (GEMINI_TOKEN not set).",
-            "suggested_actions": [
-                "Check the raw alert payload for details.",
-                "Review service logs manually.",
-            ],
-        }
+        return _fallback("GEMINI_TOKEN not set")
 
+    # Cap field lengths before inserting into the prompt to limit the
+    # prompt injection surface — alert data is untrusted external input.
     details_str = json.dumps(alert.details, indent=2) if alert.details else "None"
-
     prompt = _USER_TEMPLATE.format(
-        source=alert.source,
-        service_name=alert.service_name,
-        status=alert.status,
-        severity=alert.severity,
-        message=alert.message,
-        details=details_str,
+        source=alert.source[:_FIELD_MAX],
+        service_name=alert.service_name[:_FIELD_MAX],
+        status=alert.status[:_FIELD_MAX],
+        severity=alert.severity[:_FIELD_MAX],
+        message=alert.message[:_FIELD_MAX],
+        details=details_str[:_FIELD_MAX],
     )
 
     payload = {
@@ -100,20 +108,7 @@ def get_ai_insight(alert: NormalizedAlert) -> dict:
             raw = raw.rsplit("```", 1)[0].strip()
         return json.loads(raw)
     except (json.JSONDecodeError, KeyError, IndexError) as exc:
-        return {
-            "insight": f"AI analysis unavailable (parse error: {exc}).",
-            "suggested_actions": [
-                "Check the raw alert payload for details.",
-                "Review service logs manually.",
-            ],
-        }
+        return _fallback(f"parse error: {exc}")
     except requests.RequestException as exc:
-        # Mask the API key in the error message
-        safe_msg = str(exc).replace(token, "***")
-        return {
-            "insight": f"AI analysis unavailable (API error: {safe_msg}).",
-            "suggested_actions": [
-                "Check the raw alert payload for details.",
-                "Review service logs manually.",
-            ],
-        }
+        safe_msg = str(exc).replace(token, "***")  # mask API key
+        return _fallback(f"API error: {safe_msg}")

@@ -27,7 +27,7 @@ _SEVERITY_EMOJI = {
     "unknown":  "⚪",
 }
 
-_GRAPH_API_VERSION = "v21.0"
+_GRAPH_API_VERSION = "v22.0"
 
 
 def _build_message(alert: NormalizedAlert, ai: dict[str, Any]) -> str:

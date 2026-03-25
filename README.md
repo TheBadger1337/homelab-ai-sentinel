@@ -156,6 +156,9 @@ curl -s -X POST http://localhost:5000/webhook \
 | `WHATSAPP_TOKEN` | No | — | Meta WhatsApp Cloud API access token. Required for WhatsApp alerts. |
 | `WHATSAPP_PHONE_ID` | No | — | Phone Number ID from the Meta WhatsApp dashboard (the sender number). |
 | `WHATSAPP_TO` | No | — | Recipient WhatsApp number in international format, e.g. `15551234567`. |
+| `SIGNAL_API_URL` | No | — | URL of the signal-cli-rest-api container, e.g. `http://signal-cli-rest-api:8080`. |
+| `SIGNAL_SENDER` | No | — | Signal phone number to send from (the linked account), e.g. `+15551234567`. |
+| `SIGNAL_RECIPIENT` | No | — | Signal phone number to send alerts to, e.g. `+15551234567`. |
 | `PORT` | No | `5000` | Port the Flask/gunicorn server binds to inside the container. |
 | `DISCORD_DISABLED` | No | `false` | Set to `true` to suppress all Discord posts. Useful for testing. |
 
@@ -502,7 +505,7 @@ Status-to-severity mapping for Uptime Kuma is in `_uptime_kuma_status()` in `ale
 
 ## Running the Test Suite
 
-147 unit tests cover all three alert parsers, the Discord embed builder, the Slack Block Kit builder, the Telegram message builder, the Ntfy payload builder, the email builder, the WhatsApp message builder, the notification dispatcher, and the Flask error handlers. No network access required — all tests run against pure functions, mocks, and the Flask test client.
+167 unit tests cover all three alert parsers, the Discord embed builder, the Slack Block Kit builder, the Telegram message builder, the Ntfy payload builder, the email builder, the WhatsApp message builder, the Signal message builder, the notification dispatcher, and the Flask error handlers. No network access required — all tests run against pure functions, mocks, and the Flask test client.
 
 ```bash
 # Create a virtual environment (first time only)
@@ -514,7 +517,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Expected output: `147 passed`
+Expected output: `167 passed`
 
 **Test coverage by file:**
 
@@ -527,6 +530,7 @@ Expected output: `147 passed`
 | `tests/test_ntfy_client.py` | 16 | Ntfy payload: priority/tag mapping, message content, `post_alert` send/skip |
 | `tests/test_email_client.py` | 20 | Email subject/plain/HTML builders, escaping, SMTP send/skip, default recipient |
 | `tests/test_whatsapp_client.py` | 21 | WhatsApp message builder, API payload structure, auth header, send/skip |
+| `tests/test_signal_client.py` | 20 | Signal message builder, API payload structure, send/skip |
 | `tests/test_notify.py` | 5 | Dispatcher: all clients called, errors isolated per-platform, list returned |
 | `tests/test_app.py` | 4 | Flask error handlers: 404, 405, 413, unhandled exception all return JSON |
 

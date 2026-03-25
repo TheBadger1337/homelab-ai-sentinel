@@ -7,6 +7,7 @@ plus the AI-generated Insight and Suggested Actions.
 
 import os
 from datetime import datetime, timezone
+from typing import Any
 
 import requests
 
@@ -27,7 +28,7 @@ _STATUS_EMOJI = {
 }
 
 
-def _build_embed(alert: NormalizedAlert, ai: dict) -> dict:
+def _build_embed(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]:
     color = _COLORS.get(alert.severity, _COLORS["unknown"])
     emoji = _STATUS_EMOJI.get(alert.status, "⚪")
 
@@ -80,7 +81,7 @@ def _build_embed(alert: NormalizedAlert, ai: dict) -> dict:
     }
 
 
-def post_alert(alert: NormalizedAlert, ai: dict) -> None:
+def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     """
     Post the alert embed to Discord.
     Raises requests.HTTPError on non-2xx response.

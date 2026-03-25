@@ -7,6 +7,7 @@ AI Insight + Suggested Actions dict.
 
 import json
 import os
+from typing import Any
 
 import requests
 
@@ -53,7 +54,7 @@ Respond with this exact JSON schema:
 _FIELD_MAX = 500  # max chars for any single alert field sent to the AI prompt
 
 
-def _fallback(reason: str) -> dict:
+def _fallback(reason: str) -> dict[str, Any]:
     return {
         "insight": f"AI analysis unavailable ({reason}).",
         "suggested_actions": [
@@ -63,7 +64,7 @@ def _fallback(reason: str) -> dict:
     }
 
 
-def get_ai_insight(alert: NormalizedAlert) -> dict:
+def get_ai_insight(alert: NormalizedAlert) -> dict[str, Any]:
     """
     Call Gemini and return {"insight": str, "suggested_actions": list[str]}.
     Falls back to a generic response on any API error.

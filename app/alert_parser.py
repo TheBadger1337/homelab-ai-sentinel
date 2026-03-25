@@ -21,7 +21,7 @@ class NormalizedAlert:
     details: dict[str, Any] = field(default_factory=dict)
 
 
-def _uptime_kuma_status(raw_status) -> tuple[str, str]:
+def _uptime_kuma_status(raw_status: int) -> tuple[str, str]:
     """Return (status, severity) from Uptime Kuma heartbeat status int."""
     if raw_status == 0:
         return "down", "critical"
@@ -30,11 +30,11 @@ def _uptime_kuma_status(raw_status) -> tuple[str, str]:
     return "unknown", "warning"
 
 
-def _is_uptime_kuma(data: dict) -> bool:
+def _is_uptime_kuma(data: dict[str, Any]) -> bool:
     return "heartbeat" in data and "monitor" in data
 
 
-def _parse_uptime_kuma(data: dict) -> NormalizedAlert:
+def _parse_uptime_kuma(data: dict[str, Any]) -> NormalizedAlert:
     hb = data.get("heartbeat", {})
     monitor = data.get("monitor", {})
 
@@ -67,11 +67,11 @@ def _parse_uptime_kuma(data: dict) -> NormalizedAlert:
     )
 
 
-def _is_grafana(data: dict) -> bool:
+def _is_grafana(data: dict[str, Any]) -> bool:
     return isinstance(data.get("alerts"), list) and "groupLabels" in data
 
 
-def _parse_grafana(data: dict) -> NormalizedAlert:
+def _parse_grafana(data: dict[str, Any]) -> NormalizedAlert:
     top_status = str(data.get("status", "unknown")).lower()
     if top_status in ("firing", "alerting"):
         status, severity = "down", "critical"
@@ -126,7 +126,7 @@ def _parse_grafana(data: dict) -> NormalizedAlert:
     )
 
 
-def _parse_generic(data: dict) -> NormalizedAlert:
+def _parse_generic(data: dict[str, Any]) -> NormalizedAlert:
     # Best-effort mapping for arbitrary JSON payloads
     status_raw = (
         data.get("status")
@@ -176,7 +176,7 @@ def _parse_generic(data: dict) -> NormalizedAlert:
     )
 
 
-def parse_alert(data: dict) -> NormalizedAlert:
+def parse_alert(data: dict[str, Any]) -> NormalizedAlert:
     """Entry point: detect format and return a NormalizedAlert."""
     if _is_uptime_kuma(data):
         return _parse_uptime_kuma(data)

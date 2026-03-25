@@ -30,21 +30,21 @@ Supported notification platforms: **Discord**, **Slack**, **Telegram**, **Ntfy**
 ## Architecture
 
 ```
-┌──────────────────────┐                                              ┌─────────────────────┐
-│  Uptime Kuma         │                                              │   Gemini 2.5 Flash  │
-│  Grafana             │      ┌───────────────────────────────┐  AI  │   (or Claude, GPT,  │
-│  Prometheus AM       │─POST▶│      Homelab AI Sentinel      │─────▶│    Groq, Ollama,    │
-│  Healthchecks.io     │ JSON │                               │◀─────│    LM Studio, etc.) │
-│  Netdata / Zabbix    │      │  1. alert_parser.py (11 src)  │ resp └─────────────────────┘
-│  Checkmk / WUD       │      │  2. gemini_client.py (enrich) │
-│  Docker Events       │      │  3. notify.py (parallel send) │
-│  Glances (poller)    │      └──────────────┬────────────────┘
-│  curl / custom       │                     │ dispatches to all configured platforms
-└──────────────────────┘                     │
-              ┌──────────┬──────────┬────────┴──┬──────────┬──────────┐
-              ▼          ▼          ▼            ▼          ▼          ▼
-           Discord     Slack    Telegram       Ntfy       Email    WhatsApp
-           Signal     Gotify     Matrix      iMessage
+┌──────────────────────┐
+│  Uptime Kuma         │
+│  Grafana             │      ┌─────────────────────────────────┐      ┌─────────────────────┐
+│  Prometheus AM       │─POST▶│       Homelab AI Sentinel       │─────▶│  Gemini 2.5 Flash   │
+│  Healthchecks.io     │ JSON │                                 │◀─────│  (or Claude, GPT,   │
+│  Netdata / Zabbix    │      │  alert_parser.py  (11 parsers)  │      │   Groq, Ollama,     │
+│  Checkmk / WUD       │      │  gemini_client.py (AI enrich)   │      │   LM Studio, etc.)  │
+│  Docker Events       │      │  notify.py        (dispatch)    │      └─────────────────────┘
+│  Glances (poller)    │      └────────────────┬────────────────┘
+│  curl / custom       │                       │
+└──────────────────────┘                       │
+              ┌──────────┬──────────┬──────────┴──┬──────────┬──────────┐
+              ▼          ▼          ▼              ▼          ▼          ▼
+           Discord     Slack    Telegram          Ntfy      Email    WhatsApp
+           Signal     Gotify     Matrix         iMessage
 ```
 
 ---

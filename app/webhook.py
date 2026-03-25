@@ -50,8 +50,9 @@ def webhook():
     try:
         post_alert(alert, ai)
     except requests.RequestException as exc:
-        discord_error = str(exc)
-        logger.warning("Discord post failed: %s", discord_error)
+        # Log full detail server-side; never return the webhook URL to callers
+        logger.warning("Discord post failed: %s", exc)
+        discord_error = "Discord delivery failed"
 
     response = {
         "status": "processed",

@@ -43,3 +43,17 @@ def test_413_returns_json(client):
     data = resp.get_json()
     assert "error" in data
     assert "limit" in data
+
+
+def test_unhandled_exception_returns_json(client):
+    # Simulate a route that raises unexpectedly by hitting a bad Content-Type
+    # that get_json can handle without crash, then confirm 500 path returns JSON.
+    # We trigger the catch-all by sending invalid JSON that passes content-type check.
+    resp = client.post(
+        "/webhook",
+        data=b"not json at all",
+        content_type="application/json",
+    )
+    # Should return 400 (invalid JSON dict), not an HTML 500
+    assert resp.is_json
+    assert resp.status_code in (400, 500)

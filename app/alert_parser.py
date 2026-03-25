@@ -114,7 +114,7 @@ def _parse_grafana(data: dict[str, Any]) -> NormalizedAlert:
         "generator_url": first_alert.get("generatorURL"),
         "dashboard_url": first_alert.get("dashboardURL") or None,
     }
-    details = {k: v for k, v in details.items() if v}
+    details = {k: v for k, v in details.items() if v is not None}
 
     return NormalizedAlert(
         source="grafana",

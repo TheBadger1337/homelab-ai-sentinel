@@ -6,12 +6,15 @@ AI Insight + Suggested Actions dict.
 """
 
 import json
+import logging
 import os
 from typing import Any
 
 import requests
 
 from .alert_parser import NormalizedAlert
+
+logger = logging.getLogger(__name__)
 
 _GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -109,9 +112,12 @@ def get_ai_insight(alert: NormalizedAlert) -> dict[str, Any]:
             raw = raw.rsplit("```", 1)[0].strip()
         return json.loads(raw)
     except (json.JSONDecodeError, KeyError, IndexError, AttributeError) as exc:
-        return _fallback(f"parse error: {exc}")
+        logger.warning("AI response parse error: %s", exc)
+        return _fallback(f"parse error: {type(exc).__name__}")
     except requests.RequestException as exc:
-        safe_msg = str(exc).replace(token, "***")  # mask API key
-        return _fallback(f"API error: {safe_msg}")
+        safe_msg = str(exc).replace(token, "***")  # mask API key in logs
+        logger.warning("Gemini API error: %s", safe_msg)
+        return _fallback("API error")
     except Exception as exc:  # noqa: BLE001 — intentional broad catch; must never raise
-        return _fallback(f"unexpected error: {type(exc).__name__}")
+        logger.exception("Unexpected AI error: %s", exc)
+        return _fallback("unexpected error")

@@ -5,3 +5,8 @@
 *.env
 *.md
 setup-repo.sh
+.venv/
+tests/
+requirements-dev.txt
+pyrightconfig.json
+.pytest_cache/

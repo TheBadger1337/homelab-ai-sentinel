@@ -5,8 +5,7 @@ Covers format detection and field mapping for all three sources:
 Uptime Kuma, Grafana, and generic JSON.
 """
 
-import pytest
-from app.alert_parser import parse_alert, NormalizedAlert
+from app.alert_parser import parse_alert
 
 
 # ---------------------------------------------------------------------------
@@ -216,3 +215,23 @@ def test_generic_warning_status_normalized():
         alert = parse_alert({"service": "svc", "status": raw})
         assert alert.status == "warning", f"status not normalized for {raw!r}"
         assert alert.severity == "warning"
+
+
+# ---------------------------------------------------------------------------
+# Grafana resolved — firing_count: 0 must not be dropped
+# ---------------------------------------------------------------------------
+
+def test_grafana_resolved_firing_count_zero_preserved():
+    # firing_count=0 on a resolved alert is meaningful data.
+    # The falsy filter `if v` would drop it; `if v is not None` preserves it.
+    data = {
+        "status": "resolved",
+        "alerts": [],
+        "groupLabels": {"alertname": "CPU"},
+        "commonLabels": {},
+        "commonAnnotations": {},
+        "version": "1",
+    }
+    alert = parse_alert(data)
+    assert "firing_count" in alert.details
+    assert alert.details["firing_count"] == 0

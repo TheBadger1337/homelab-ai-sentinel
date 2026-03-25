@@ -146,7 +146,7 @@ curl -s -X POST http://localhost:5000/webhook \
 | `PORT` | No | `5000` | Port the Flask/gunicorn server binds to inside the container. |
 | `DISCORD_DISABLED` | No | `false` | Set to `true` to suppress all Discord posts. Useful for testing. |
 
-These variables are loaded from `.secrets.env` by `docker-compose.yml`. If you run Sentinel without Docker, you can use a `.env` file in the project root — `python-dotenv` will pick it up automatically via `main.py`.
+These variables are loaded from `.secrets.env` by `docker-compose.yml`. If you run Sentinel without Docker, `main.py` loads `.secrets.env` directly via `python-dotenv` — no separate `.env` file needed.
 
 ---
 
@@ -319,11 +319,9 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Create a .env file (python-dotenv loads this automatically)
-cat > .env <<EOF
-GEMINI_TOKEN=your_key
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
-EOF
+# main.py loads .secrets.env automatically via python-dotenv
+cp .secrets.env.example .secrets.env
+# Edit .secrets.env and fill in your keys
 
 python main.py
 ```
@@ -446,12 +444,12 @@ The system prompt and user prompt template are at the top of `app/claude_client.
 
 ```
 app/
-├── __init__.py        # Flask app factory, registers blueprints
+├── __init__.py        # Flask app factory, registers blueprints, JSON error handlers
 ├── webhook.py         # POST /webhook route — orchestrates the pipeline
 ├── alert_parser.py    # Format detection + normalization → NormalizedAlert
 ├── claude_client.py   # AI provider integration → {insight, suggested_actions}
 └── discord_client.py  # Discord embed builder + poster
-main.py                # Entry point, loads .env, creates WSGI app
+main.py                # Entry point, loads .secrets.env, creates WSGI app
 ```
 
 **Adding a new alert source parser:**
@@ -470,6 +468,34 @@ main.py                # Entry point, loads .env, creates WSGI app
 **Changing severity thresholds:**
 
 Status-to-severity mapping for Uptime Kuma is in `_uptime_kuma_status()` in `alert_parser.py`. Generic mapping is in the `if/elif` block inside `_parse_generic()`. Both return `(status, severity)` tuples that flow through to Discord embed color selection.
+
+---
+
+## Running the Test Suite
+
+43 unit tests cover all three alert parsers, the Discord embed builder, and the Flask error handlers. No network access required — all tests run against pure functions and the Flask test client.
+
+```bash
+# Create a virtual environment (first time only)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+# Run tests
+python -m pytest tests/ -v
+```
+
+Expected output: `43 passed`
+
+**Test coverage by file:**
+
+| File | Tests | What's covered |
+|---|---|---|
+| `tests/test_alert_parser.py` | 23 | Uptime Kuma / Grafana / generic format detection, field mapping, edge cases |
+| `tests/test_discord_client.py` | 17 | Embed builder: colors, title truncation, field length, malformed AI response handling |
+| `tests/test_app.py` | 3 | Flask error handlers: 404, 405, 413 all return JSON |
+
+When adding a new alert source parser, add at minimum: a detection test, a happy-path parse test, and an edge case test (empty payload, unknown status value).
 
 ---
 

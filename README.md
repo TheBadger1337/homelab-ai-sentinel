@@ -362,7 +362,7 @@ The README gets you to a working deployment. The guides cover what comes after â
 | Bundle | Includes | Price |
 |---|---|---|
 | Messaging Power Pack | WhatsApp + Signal + Telegram + Matrix | $39 |
-| Self-Hosted Stack | Gotify + Matrix + Ntfy + Discord | $29 |
+| Self-Hosted Stack | Gotify + Matrix + Ntfy + Discord | $24 |
 | **Homelab AI Blueprint** | Everything â€” all platform guides, full monitoring stack (Uptime Kuma, Grafana, Prometheus, Netdata, Glances), Docker networking, AI agent layer, LLM provider swap guide, production deployment playbook | $59 |
 
 All guides: [gumroad.com/thebadger1337](https://gumroad.com/thebadger1337)

@@ -48,7 +48,9 @@ threads = int(os.environ.get("WORKER_THREADS", "4"))
 # ---------------------------------------------------------------------------
 
 # Worker kill timeout. Must be longer than the worst-case request:
-# Gemini (30s) + slowest notification client (15s iMessage) = ~45s.
+# Gemini (30s) + retry backoff (GEMINI_RETRIES * GEMINI_RETRY_BACKOFF, ~3s default)
+# + slowest notification client (15s iMessage) = ~48s.
+# If you increase GEMINI_RETRIES or GEMINI_RETRY_BACKOFF, raise this value too.
 timeout = int(os.environ.get("GUNICORN_TIMEOUT", "60"))
 
 # How long to wait for in-flight requests to finish during a graceful restart.

@@ -73,28 +73,15 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .utils import _env_int, _env_float
 
 logger = logging.getLogger(__name__)
 
 
-def _env_int(key: str, default: int) -> int:
-    try:
-        return int(os.environ.get(key, str(default)))
-    except ValueError:
-        logger.warning("Invalid value for %s env var — using default %d", key, default)
-        return default
-
-
-def _env_float(key: str, default: float) -> float:
-    try:
-        return float(os.environ.get(key, str(default)))
-    except ValueError:
-        logger.warning("Invalid value for %s env var — using default %g", key, default)
-        return default
-
+_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 _GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent"
+    f"{_GEMINI_MODEL}:generateContent"
 )
 
 # Persistent HTTP session — reuses TCP connections across calls (keep-alive).

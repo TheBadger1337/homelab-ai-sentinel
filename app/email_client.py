@@ -23,16 +23,9 @@ from email.mime.text import MIMEText
 from typing import Any
 
 from .alert_parser import NormalizedAlert
+from .utils import _env_int
 
 logger = logging.getLogger(__name__)
-
-
-def _env_int(key: str, default: int) -> int:
-    try:
-        return int(os.environ.get(key, str(default)))
-    except ValueError:
-        logger.warning("Invalid value for %s env var — using default %d", key, default)
-        return default
 
 _SEVERITY_EMOJI = {
     "critical": "🔴",

@@ -50,18 +50,11 @@ from flask import Blueprint, jsonify, request
 from .alert_parser import NormalizedAlert, parse_alert
 from .gemini_client import get_ai_insight
 from . import notify
+from .utils import _env_int
 
 logger = logging.getLogger(__name__)
 webhook_bp = Blueprint("webhook", __name__)
 
-
-def _env_int(key: str, default: int) -> int:
-    """Read an integer env var. Returns default and logs a warning on invalid values."""
-    try:
-        return int(os.environ.get(key, str(default)))
-    except ValueError:
-        logger.warning("Invalid value for %s env var — using default %d", key, default)
-        return default
 
 # ---------------------------------------------------------------------------
 # Alert deduplication

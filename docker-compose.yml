@@ -8,7 +8,9 @@ services:
     env_file:
       - .secrets.env
     depends_on:
-      - signal-cli-rest-api
+      signal-cli-rest-api:
+        condition: service_started
+        required: false
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 30s
@@ -17,6 +19,8 @@ services:
       start_period: 10s
 
   signal-cli-rest-api:
+    profiles:
+      - signal
     # Pinned to a specific digest to prevent silent supply-chain updates.
     # To update: docker pull bbernhard/signal-cli-rest-api:latest, then
     # update this digest with: docker image inspect --format '{{index .RepoDigests 0}}'

@@ -35,6 +35,14 @@ def _configure_logging() -> None:
 
 def create_app() -> Flask:
     _configure_logging()
+
+    if not os.environ.get("GEMINI_TOKEN"):
+        logger.warning(
+            "GEMINI_TOKEN is not set — AI enrichment is unavailable. "
+            "Alerts will be forwarded with a canned fallback response. "
+            "Set GEMINI_TOKEN in .secrets.env to enable AI insight."
+        )
+
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB
     app.register_blueprint(webhook_bp)

@@ -13,6 +13,17 @@ import requests
 
 from .alert_parser import NormalizedAlert
 
+# Discord renders @everyone and @here in embed fields as visual mentions.
+# Strip them by inserting a zero-width space so the text is inert.
+_MENTION_SUBS = [("@everyone", "@\u200beveryone"), ("@here", "@\u200bhere")]
+
+
+def _strip_mentions(text: str) -> str:
+    for src, dst in _MENTION_SUBS:
+        text = text.replace(src, dst)
+    return text
+
+
 _COLORS = {
     "critical": 0xED4245,   # red
     "warning":  0xFEE75C,   # yellow
@@ -37,12 +48,12 @@ def _build_embed(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]:
     fields = [
         {
             "name": "Alert Message",
-            "value": alert.message[:1024],
+            "value": _strip_mentions(alert.message[:1024]),
             "inline": False,
         },
         {
             "name": "Source",
-            "value": alert.source.replace("_", " ").title(),
+            "value": _strip_mentions(alert.source.replace("_", " ").title()),
             "inline": True,
         },
         {
@@ -57,7 +68,7 @@ def _build_embed(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]:
         insight = str(insight)
     fields.append({
         "name": "🤖 AI Insight",
-        "value": insight[:1024],
+        "value": _strip_mentions(insight[:1024]),
         "inline": False,
     })
 
@@ -65,7 +76,7 @@ def _build_embed(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(actions, list):
         actions = []
     if actions:
-        action_text = "\n".join(f"• {a}" for a in actions[:5])
+        action_text = "\n".join(f"• {_strip_mentions(a)}" for a in actions[:5])
         fields.append({
             "name": "⚡ Suggested Actions",
             "value": action_text[:1024],

@@ -26,6 +26,14 @@ from .alert_parser import NormalizedAlert
 
 logger = logging.getLogger(__name__)
 
+
+def _env_int(key: str, default: int) -> int:
+    try:
+        return int(os.environ.get(key, str(default)))
+    except ValueError:
+        logger.warning("Invalid value for %s env var — using default %d", key, default)
+        return default
+
 _SEVERITY_EMOJI = {
     "critical": "🔴",
     "warning":  "🟡",
@@ -131,7 +139,7 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     if not host or not user or not password:
         return
 
-    port = int(os.environ.get("SMTP_PORT", "587"))
+    port = _env_int("SMTP_PORT", 587)
     to_addr = os.environ.get("SMTP_TO", user)  # default: send to self
 
     msg = MIMEMultipart("alternative")
@@ -146,6 +154,7 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
         with smtplib.SMTP(host, port, timeout=10) as smtp:
             smtp.ehlo()
             smtp.starttls()
+            smtp.ehlo()  # RFC 3207: re-negotiate capabilities after STARTTLS
             smtp.login(user, password)
             smtp.sendmail(user, to_addr, msg.as_string())
     except smtplib.SMTPAuthenticationError:

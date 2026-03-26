@@ -75,8 +75,8 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
 
     resp = requests.post(
         f"{url.rstrip('/')}/api/v1/message/text",
-        params={"password": password},
         json={
+            "password": password,
             "chatGuid": f"iMessage;-;{recipient}",
             "message": message,
             "method": "private-api",

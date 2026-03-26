@@ -76,6 +76,22 @@ from .alert_parser import NormalizedAlert
 
 logger = logging.getLogger(__name__)
 
+
+def _env_int(key: str, default: int) -> int:
+    try:
+        return int(os.environ.get(key, str(default)))
+    except ValueError:
+        logger.warning("Invalid value for %s env var — using default %d", key, default)
+        return default
+
+
+def _env_float(key: str, default: float) -> float:
+    try:
+        return float(os.environ.get(key, str(default)))
+    except ValueError:
+        logger.warning("Invalid value for %s env var — using default %g", key, default)
+        return default
+
 _GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     "gemini-2.5-flash:generateContent"
@@ -102,7 +118,7 @@ def _acquire_rpm_slot() -> bool:
     Returns False if the limit would be exceeded (caller should fall back).
     Thread-safe: safe to call from multiple gunicorn threads concurrently.
     """
-    limit = int(os.environ.get("GEMINI_RPM", "10"))
+    limit = _env_int("GEMINI_RPM", 10)
     if limit <= 0:
         return True  # limiter disabled
     now = time.monotonic()
@@ -227,8 +243,8 @@ def _post_gemini(payload: dict, token: str) -> requests.Response:
     logic applies. On the final attempt, the exception is re-raised so the
     caller can fall back to the canned response.
     """
-    max_retries = int(os.environ.get("GEMINI_RETRIES", "2"))
-    base = float(os.environ.get("GEMINI_RETRY_BACKOFF", "1.0"))
+    max_retries = _env_int("GEMINI_RETRIES", 2)
+    base = _env_float("GEMINI_RETRY_BACKOFF", 1.0)
 
     for attempt in range(max_retries + 1):
         try:

@@ -19,6 +19,16 @@ _SEVERITY_EMOJI = {
     "unknown":  "⚪",
 }
 
+# Slack renders <!here>, <!channel>, and <!everyone> in mrkdwn fields and
+# will fire a real channel notification. Strip them from all untrusted content.
+_MENTION_SUBS = [("<!here>", "@here"), ("<!channel>", "@channel"), ("<!everyone>", "@everyone")]
+
+
+def _strip_mentions(text: str) -> str:
+    for src, dst in _MENTION_SUBS:
+        text = text.replace(src, dst)
+    return text
+
 
 def _build_message(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]:
     emoji = _SEVERITY_EMOJI.get(alert.severity, "⚪")
@@ -36,7 +46,7 @@ def _build_message(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]
             "fields": [
                 {
                     "type": "mrkdwn",
-                    "text": f"*Source:*\n{alert.source.replace('_', ' ').title()}",
+                    "text": f"*Source:*\n{_strip_mentions(alert.source.replace('_', ' ').title())}",
                 },
                 {
                     "type": "mrkdwn",
@@ -48,7 +58,7 @@ def _build_message(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*Alert Message*\n{alert.message[:1000]}",
+                "text": f"*Alert Message*\n{_strip_mentions(alert.message[:1000])}",
             },
         },
     ]
@@ -60,7 +70,7 @@ def _build_message(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": f"*🤖 AI Insight*\n{insight[:2000]}",
+            "text": f"*🤖 AI Insight*\n{_strip_mentions(insight[:2000])}",
         },
     })
 
@@ -68,7 +78,7 @@ def _build_message(alert: NormalizedAlert, ai: dict[str, Any]) -> dict[str, Any]
     if not isinstance(actions, list):
         actions = []
     if actions:
-        action_lines = "\n".join(f"• {a}" for a in actions[:5])
+        action_lines = "\n".join(f"• {_strip_mentions(a)}" for a in actions[:5])
         blocks.append({
             "type": "section",
             "text": {

@@ -54,6 +54,15 @@ from . import notify
 logger = logging.getLogger(__name__)
 webhook_bp = Blueprint("webhook", __name__)
 
+
+def _env_int(key: str, default: int) -> int:
+    """Read an integer env var. Returns default and logs a warning on invalid values."""
+    try:
+        return int(os.environ.get(key, str(default)))
+    except ValueError:
+        logger.warning("Invalid value for %s env var — using default %d", key, default)
+        return default
+
 # ---------------------------------------------------------------------------
 # Alert deduplication
 # ---------------------------------------------------------------------------
@@ -89,7 +98,7 @@ def _is_duplicate(alert: NormalizedAlert) -> bool:
     Return True if an identical alert was processed within the TTL window.
     Prunes expired entries on each call to prevent unbounded cache growth.
     """
-    ttl = int(os.environ.get("DEDUP_TTL_SECONDS", "60"))
+    ttl = _env_int("DEDUP_TTL_SECONDS", 60)
     if ttl <= 0:
         return False
 
@@ -115,10 +124,10 @@ def _check_rate_limit() -> bool:
     Uses a sliding window counter. Thread-safe.
     Returns False (allow) when WEBHOOK_RATE_LIMIT is 0 or unset.
     """
-    limit = int(os.environ.get("WEBHOOK_RATE_LIMIT", "0"))
+    limit = _env_int("WEBHOOK_RATE_LIMIT", 0)
     if limit <= 0:
         return False  # limiter disabled
-    window = int(os.environ.get("WEBHOOK_RATE_WINDOW", "60"))
+    window = _env_int("WEBHOOK_RATE_WINDOW", 60)
     now = time.monotonic()
     with _rate_lock:
         cutoff = now - window

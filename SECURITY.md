@@ -303,9 +303,11 @@ Discord/Slack examples:
 | Email | `html.escape()` on all fields in HTML body | `app/email_client.py` |
 | Matrix | `html.escape()` on all fields in `formatted_body` | `app/matrix_client.py` |
 | Discord | Discord auto-escapes Markdown in embed fields | `app/discord_client.py` |
-| Slack | Block Kit text fields are not Markdown-rendered | `app/slack_client.py` |
+| Slack | `_strip_mentions()` strips `<!here>`, `<!channel>`, `<!everyone>` from all `mrkdwn` fields | `app/slack_client.py` |
 
-**Not implemented:** `@everyone` / `@here` stripping in Discord/Slack. For deployments where alert content from untrusted sources flows into Discord, add explicit mention stripping: `message.replace("@everyone", "@\u200beveryone")`.
+**Note:** Slack's Block Kit uses `mrkdwn` type for all substantive text fields (source, severity, message, AI insight, suggested actions). Slack renders `<!here>` and `<!channel>` in `mrkdwn` fields and fires a real channel notification. Only the header block uses `plain_text`. Mention stripping is implemented and applied to all `mrkdwn` fields before posting.
+
+**Not implemented:** `@everyone` stripping in Discord. Discord embed fields suppress most Markdown rendering, but explicit mention stripping (`message.replace("@everyone", "@\u200beveryone")`) should be added if alert sources are untrusted and public.
 
 ---
 
@@ -350,6 +352,7 @@ Classic example: `requests.HTTPError.__str__()` includes the full request URL. F
 | `_safe_exc_log()` — logs only `ExceptionType (HTTP 4xx)`, never the raw exception string | `app/notify.py` — `_safe_exc_log()` |
 | All logger calls use `%s` format args (lazy evaluation) — no f-strings with secrets | All `app/*.py` |
 | `SENTINEL_DEBUG=true` documentation warns against production use | `app/__init__.py`, `.secrets.env.example` |
+| iMessage password passed in JSON request body, not URL query string — prevents credential appearing in Bluebubbles server access logs | `app/imessage_client.py` |
 
 ---
 

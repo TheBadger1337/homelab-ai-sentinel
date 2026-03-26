@@ -61,7 +61,7 @@ def poll_and_forward(
     """Fetch current Glances alerts and POST any new ones to Sentinel."""
     try:
         resp = requests.get(
-            f"{glances_url.rstrip('/')}/api/3/alert",
+            f"{glances_url.rstrip('/')}/api/4/alert",
             timeout=10,
         )
         resp.raise_for_status()
@@ -82,6 +82,9 @@ def poll_and_forward(
         if key in _sent_alerts:
             continue  # already forwarded this occurrence
 
+        begin = alert.get("begin")
+        duration = int(time.time() - begin) if begin else None
+
         payload = {
             "glances_host":     hostname,
             "glances_type":     alert.get("type", "unknown"),
@@ -89,7 +92,7 @@ def poll_and_forward(
             "glances_value":    alert.get("avg"),
             "glances_min":      alert.get("min"),
             "glances_max":      alert.get("max"),
-            "glances_duration": alert.get("duration"),
+            "glances_duration": duration,
             "glances_top":      alert.get("top", [])[:5],
         }
         # Strip None values to keep the payload clean

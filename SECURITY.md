@@ -144,6 +144,11 @@ Examples:
 | Alert data wrapped in `<alert_data>...</alert_data>` XML delimiters | `app/gemini_client.py` — `_USER_TEMPLATE` |
 | System prompt explicitly instructs: content inside delimiters is data, not instructions | `app/gemini_client.py` — `_SYSTEM_PROMPT` |
 | Logging uses `%s` format args — never f-strings with untrusted data | All `app/*.py` logger calls |
+| All parser extractions use `.get()` with typed defaults — no direct key access | `app/alert_parser.py` — all `_parse_*` functions |
+
+**Gap — Generic parser open field passthrough (Medium):** The generic parser passes all JSON keys not in a fixed exclusion set directly to `alert.details`, which reaches the AI prompt via `_truncate_details`. An attacker POSTing a crafted generic payload can maximise prompt injection surface to 20 keys × 200 chars = 4,000 chars of attacker-controlled content entering the prompt, vs. the tightly-scoped fields extracted by named parsers. The `<alert_data>` delimiters and system prompt mitigate this, but the attack surface is meaningfully wider than for known-format payloads.
+
+Setting `WEBHOOK_SECRET` limits this surface to authenticated senders only. For internet-facing deployments where the secret is not set, this is the highest-impact injection vector.
 
 ---
 
@@ -302,12 +307,19 @@ Discord/Slack examples:
 | Telegram | `html.escape()` on all user-controlled fields | `app/telegram_client.py` |
 | Email | `html.escape()` on all fields in HTML body | `app/email_client.py` |
 | Matrix | `html.escape()` on all fields in `formatted_body` | `app/matrix_client.py` |
-| Discord | Discord auto-escapes Markdown in embed fields | `app/discord_client.py` |
+| Discord | `@everyone` / `@here` defanged with zero-width space | `app/discord_client.py` |
 | Slack | `_strip_mentions()` strips `<!here>`, `<!channel>`, `<!everyone>` from all `mrkdwn` fields | `app/slack_client.py` |
 
 **Note:** Slack's Block Kit uses `mrkdwn` type for all substantive text fields (source, severity, message, AI insight, suggested actions). Slack renders `<!here>` and `<!channel>` in `mrkdwn` fields and fires a real channel notification. Only the header block uses `plain_text`. Mention stripping is implemented and applied to all `mrkdwn` fields before posting.
 
-**Not implemented:** `@everyone` stripping in Discord. Discord embed fields suppress most Markdown rendering, but explicit mention stripping (`message.replace("@everyone", "@\u200beveryone")`) should be added if alert sources are untrusted and public.
+**Gap — user and role mention injection (Low):** Both Discord and Slack support `<@USERID>` (user mention) and `<@&ROLEID>` (role mention, Discord) / `<!subteam^ID>` (user group, Slack) syntax. These are not stripped by the current `_strip_mentions` implementations. An attacker who controls a monitored service's name or message field and knows a target user ID can embed `<@123456789>` and trigger a direct ping to that user in the alert channel. This does not fire a channel-wide notification but does ping a specific individual.
+
+**Recommended addition** to both `discord_client.py` and `slack_client.py`:
+```python
+import re
+# Strip <@USERID>, <@&ROLEID>, <!subteam^ID|label> patterns
+text = re.sub(r'<[@!][^>]+>', '', text)
+```
 
 ---
 
@@ -353,6 +365,9 @@ Classic example: `requests.HTTPError.__str__()` includes the full request URL. F
 | All logger calls use `%s` format args (lazy evaluation) — no f-strings with secrets | All `app/*.py` |
 | `SENTINEL_DEBUG=true` documentation warns against production use | `app/__init__.py`, `.secrets.env.example` |
 | iMessage password passed in JSON request body, not URL query string — prevents credential appearing in Bluebubbles server access logs | `app/imessage_client.py` |
+| `GEMINI_TOKEN` redacted in exception log path where it could appear in URL | `app/gemini_client.py` — `safe_msg = str(exc).replace(token, "***")` |
+
+**Gap — GEMINI_TOKEN in debug traceback frames (Informational):** The token redaction covers the `requests.RequestException` path. If the token appeared in a different exception type reaching the bare `except Exception` handler, `logger.exception("Unexpected AI error")` would log the full traceback — and under some Python logging configurations, local variable values appear in tracebacks. This is theoretical under normal operation. It becomes relevant if `SENTINEL_DEBUG=true` is left enabled long-term, since debug mode increases verbosity of logged context. Never run `SENTINEL_DEBUG=true` in a persistent production deployment.
 
 ---
 
@@ -484,7 +499,38 @@ This is not a Sentinel-specific risk — it applies to any Docker deployment.
 
 ---
 
-### 6F. Plaintext Alert Transit (No TLS)
+### 6F. SSRF via Unvalidated URL Environment Variables
+
+**Risk:** Five notification clients construct outbound HTTP request URLs directly from operator-set environment variables with no scheme or host validation:
+
+| Variable | Client | URL construction |
+|---|---|---|
+| `SIGNAL_API_URL` | `signal_client.py:76` | `f"{api_url}/v2/send"` |
+| `GOTIFY_URL` | `gotify_client.py:65` | `f"{url}/message?token=..."` |
+| `NTFY_URL` | `ntfy_client.py:65` | Used directly as POST target |
+| `IMESSAGE_URL` | `imessage_client.py:68` | `f"{url}/api/v1/message"` |
+| `MATRIX_HOMESERVER` | `matrix_client.py:87` | `f"{homeserver}/_matrix/..."` |
+
+In a standard homelab deployment these are operator-set values and the risk is low. In any shared, multi-tenant, or externally-managed deployment — or if the `.secrets.env` file is writable by a less-trusted process — a modified URL value becomes an SSRF vector. The `requests` library will follow any scheme including `file://`, `http://169.254.169.254/` (cloud metadata), or internal services not otherwise reachable from outside Docker.
+
+**Recommended addition** to each affected client's `_is_configured()` or at call time:
+```python
+from urllib.parse import urlparse
+
+def _validate_url(url: str, name: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        logger.warning("%s has invalid scheme: %s", name, parsed.scheme)
+        return False
+    return True
+```
+
+**Severity in homelab context:** Low — env vars are operator-controlled.
+**Severity in shared deployment:** Medium.
+
+---
+
+### 6G. Plaintext Alert Transit (No TLS)
 
 **Risk:** Gunicorn does not terminate TLS. Alert payloads — including service names, error messages, and any extra context — travel in plaintext between your monitoring tool and Sentinel unless a TLS-terminating reverse proxy is in front.
 
@@ -495,7 +541,7 @@ On a LAN-only deployment this is generally acceptable. On an internet-facing dep
 - **Internet-facing:** Put Caddy or Nginx in front. Caddy handles TLS certificate provisioning automatically for public domains.
 - **Internal LAN with sensitive content:** Generate a self-signed CA, issue a cert for Sentinel's hostname, and configure your monitoring tool to trust the CA.
 
-This is listed as "out of scope" in the quick reference because Sentinel intentionally does not bundle a TLS implementation — terminating TLS at a dedicated proxy is the correct architectural layer for it.
+This is listed as "out of scope" in the quick reference because Sentinel intentionally does not bundle a TLS implementation — terminating TLS at a dedicated proxy is the correct architectural layer for it. See 6G.
 
 ---
 
@@ -541,7 +587,8 @@ These are not bugs — they are conscious scope decisions for a homelab tool.
 | No pattern-based secret redaction | False positives on legitimate data; configurable per-deployment | Add regex redaction step in `alert_parser.py` |
 | Dedup cache is per-worker | Multi-worker deployments could process duplicates | Run single worker, or use external Redis |
 | `WEBHOOK_RATE_LIMIT` is per-worker | Each Gunicorn worker maintains its own sliding window; effective global limit is `WEBHOOK_RATE_LIMIT × WORKERS` | Run single worker, or use Nginx `limit_req` upstream |
-| `@everyone` mention stripping not implemented | Not present in standard homelab traffic | Add string replace in formatter if needed |
+| `<@USERID>` / `<@&ROLEID>` mention stripping not implemented | Requires known user/role IDs to exploit; attacker must control alert content | Add `re.sub(r'<[@!][^>]+>', '', text)` in both Discord and Slack clients |
+| SSRF via URL env vars (SIGNAL_API_URL, GOTIFY_URL, etc.) | Env vars are operator-controlled; low risk in standard homelab | Add scheme validation in affected clients for shared deployments |
 
 ---
 
@@ -584,7 +631,10 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | Supply chain SHA pinning | ✅ Implemented | `docker-compose.yml` |
 | IP-based rate limiting | ⚠️ Recommended | Add Nginx/Caddy upstream |
 | Pattern-based secret redaction | ⚠️ Recommended | Add to `alert_parser.py` for sensitive deployments |
-| `@everyone` mention stripping | ⚠️ Recommended | Add to Discord/Slack formatters if needed |
+| `@everyone` / `@here` mention stripping | ✅ Implemented | Zero-width space in `discord_client.py`; `_strip_mentions()` in `slack_client.py` |
+| `<@USERID>` / `<@&ROLEID>` mention stripping | ⚠️ Recommended | Add `re.sub(r'<[@!][^>]+>', '', text)` to both clients — see 4B |
+| URL env var scheme validation (SSRF) | ⚠️ Recommended | Add scheme check to Signal, Gotify, Ntfy, iMessage, Matrix clients — see 6F |
+| Generic parser prompt injection surface | ⚠️ Known limitation | Wider than named parsers; mitigated by `WEBHOOK_SECRET` and field caps — see 1D |
 | URL validation in AI output | ⚠️ Recommended | Low priority for trusted networks |
 | Non-root container user | ⚠️ Recommended | Add `USER 1000` to Dockerfile |
 | Alert state machine | ❌ Out of scope | Use monitoring tool natively |

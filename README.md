@@ -349,13 +349,14 @@ The README gets you to a working deployment. The guides cover what comes after â
 
 | Guide | What it covers | Price |
 |---|---|---|
-| WhatsApp Cloud API | Meta Business setup, 24hr window, silent auth errors | $15 |
+| WhatsApp Cloud API | Meta Business setup, 24hr window, silent auth errors | $12 |
 | Signal | signal-cli-rest-api, QR linking, the one step that fails silently | $12 |
 | Matrix (Conduit) | Self-hosted homeserver, Android HTTP block, `server_name` permanence | $12 |
 | iMessage (Bluebubbles) | Mac permissions, chatGuid format, keeping the server alive | $12 |
 | Telegram | BotFather, mobile-only `/start` requirement, chat ID retrieval | $9 |
 | Gotify | Self-hosted setup, F-Droid app install, self-signed cert on Android | $9 |
-| Discord + Slack + Ntfy + Email | The four straightforward ones â€” best practices, webhook security, App Passwords | $9 |
+| Discord | Webhook setup, full bot source with streaming AI + tool calls, Claude Code bridge | $12 |
+| Slack + Ntfy + Email | Webhook setup, App Passwords, topic security | $9 |
 
 **Bundles:**
 

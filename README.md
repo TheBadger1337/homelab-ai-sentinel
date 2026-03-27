@@ -345,18 +345,34 @@ Expected: `297 passed`
 
 The README gets you to a working deployment. The guides cover what comes after — production gotchas, exact error messages and fixes, and setup steps that aren't in any official documentation.
 
-**Platform Setup Guides** — each one documents the real failure modes, not just the happy path:
+**Platform Setup Guides** — what to configure and what fails silently:
 
 | Guide | What it covers | Price |
 |---|---|---|
-| WhatsApp Cloud API | Meta Business setup, 24hr window, silent auth errors | $12 |
+| WhatsApp Cloud API | Meta Business setup, 24hr message window, silent auth errors | $12 |
 | Signal | signal-cli-rest-api, QR linking, the one step that fails silently | $12 |
 | Matrix (Conduit) | Self-hosted homeserver, Android HTTP block, `server_name` permanence | $12 |
-| iMessage (Bluebubbles) | Mac permissions, chatGuid format, keeping the server alive | $12 |
+| Discord | Webhook setup, full reference bot with streaming AI and tool calls, Claude Code bridge | $12 |
 | Telegram | BotFather, mobile-only `/start` requirement, chat ID retrieval | $9 |
-| Gotify | Self-hosted setup, F-Droid app install, self-signed cert on Android | $9 |
-| Discord | Webhook setup, full bot source with streaming AI + tool calls, Claude Code bridge | $12 |
+| Gotify | Self-hosted push server, Android app setup, priority levels, self-signed cert handling | $9 |
 | Slack + Ntfy + Email | Webhook setup, App Passwords, topic security | $9 |
+
+**Alert Source Guides** — wiring your monitoring tools to Sentinel:
+
+| Guide | Price |
+|---|---|
+| Alert Sources Pack — all 10 monitor guides | $22 |
+| Uptime Kuma · Grafana · Prometheus · Healthchecks.io · Docker Events · Generic JSON | $5 each |
+| Netdata · Glances | $6 each |
+| Checkmk | $8 |
+| Zabbix | $9 |
+
+**Technical Guides:**
+
+| Guide | What it covers | Price |
+|---|---|---|
+| Complete Setup Guide | Full production deployment walkthrough — every real error and fix | $9 |
+| LLM Provider Swap | Drop-in code for Claude, GPT-4o, Groq, Mistral, Ollama, LM Studio | $9 |
 
 **Bundles:**
 
@@ -365,7 +381,7 @@ The README gets you to a working deployment. The guides cover what comes after �
 | Messaging Power Pack | WhatsApp + Signal + Telegram + Matrix | $39 |
 | Self-Hosted Stack | Gotify + Matrix + Ntfy + Discord | $24 |
 
-All guides: [gumroad.com/thebadger1337](https://gumroad.com/thebadger1337)
+All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 
 ---
 

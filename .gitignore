@@ -10,6 +10,8 @@ venv/
 dist/
 .DS_Store
 *.log
+.pytest_cache/
+pyrightconfig.json
 
 # Local notes — not for public repo
 MEMORY.md

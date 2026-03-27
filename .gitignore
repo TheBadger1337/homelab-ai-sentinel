@@ -10,3 +10,6 @@ venv/
 dist/
 .DS_Store
 *.log
+
+# Local notes — not for public repo
+MEMORY.md

@@ -2,7 +2,10 @@
 Unit tests for email_client.py
 """
 
+import smtplib
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.alert_parser import NormalizedAlert
 from app.email_client import _build_subject, _build_plain, _build_html, post_alert
@@ -181,3 +184,21 @@ def test_post_alert_defaults_to_to_equals_user(monkeypatch):
         post_alert(_make_alert(), _AI)
     _, to_addr, _ = mock_smtp_instance.sendmail.call_args[0]
     assert to_addr == "test@gmail.com"
+
+
+def test_post_alert_smtp_auth_error_scrubbed(monkeypatch):
+    """SMTPAuthenticationError is re-raised with a sanitized message, never the raw server response."""
+    _smtp_env(monkeypatch)
+    original = smtplib.SMTPAuthenticationError(535, b"535 Username and Password not accepted")
+    mock_smtp_instance = MagicMock()
+    mock_smtp_instance.login.side_effect = original
+
+    with patch("app.email_client.smtplib.SMTP") as mock_smtp:
+        mock_smtp.return_value.__enter__.return_value = mock_smtp_instance
+        with pytest.raises(smtplib.SMTPAuthenticationError) as exc_info:
+            post_alert(_make_alert(), _AI)
+
+    raised = exc_info.value
+    assert raised.smtp_code == 535
+    assert b"Authentication failed" in raised.smtp_error
+    assert b"Username" not in raised.smtp_error

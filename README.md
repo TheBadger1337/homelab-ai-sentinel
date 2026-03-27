@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-297%20passing-22c55e?style=flat-square)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-340%20passing-22c55e?style=flat-square)](#running-tests)
 [![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-f97316?style=flat-square)](https://aistudio.google.com)
 
 </div>
@@ -335,9 +335,9 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-**297 tests** — all 11 parsers, all 10 notification clients, parallel dispatch, auth, deduplication, rate limiting, retry/backoff, Flask error handlers. No network access required.
+**340 tests** — all 11 parsers, all 10 notification clients, parallel dispatch, auth, deduplication, rate limiting, retry/backoff, Flask error handlers. No network access required.
 
-Expected: `297 passed`
+Expected: `340 passed`
 
 ---
 
@@ -355,7 +355,9 @@ The README gets you to a working deployment. The guides cover what comes after �
 | Discord (3-in-1) | Webhook alerts · full reference bot with streaming AI and tool calls · Claude Code bridge | $12 |
 | Telegram | BotFather, mobile-only `/start` requirement, chat ID retrieval | $9 |
 | Gotify | Self-hosted push server, Android app setup, priority levels, self-signed cert handling | $9 |
-| Slack + Ntfy + Email | Webhook setup, App Passwords, topic security | $9 |
+| Slack | Incoming webhook setup, Block Kit format, mention injection prevention | $9 |
+| Ntfy | Topic setup, basic auth for locked instances, priority and tag mapping | $6 |
+| Email (SMTP) | Gmail app passwords, STARTTLS config, HTML and plain-text bodies | $6 |
 
 **Alert Source Guides** — wiring your monitoring tools to Sentinel:
 

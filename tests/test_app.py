@@ -268,3 +268,44 @@ def test_rate_limit_disabled_when_zero(client, monkeypatch):
         for _ in range(5):
             resp = client.post("/webhook", json={"service": "x", "status": "down", "message": "y"})
             assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# GET /health
+# ---------------------------------------------------------------------------
+
+def test_health_endpoint_returns_ok(client):
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.is_json
+    assert resp.get_json() == {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Dedup cache pruning
+# ---------------------------------------------------------------------------
+
+def test_dedup_cache_prunes_expired_entries(monkeypatch):
+    """Stale entries older than TTL are removed from the cache on each call."""
+    import time
+    import app.webhook as wh
+    from app.alert_parser import NormalizedAlert
+
+    monkeypatch.setenv("DEDUP_TTL_SECONDS", "60")
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+
+    alert = NormalizedAlert(
+        source="generic", service_name="prunetest", status="down",
+        severity="critical", message="x", details={},
+    )
+
+    # Seed the cache with a stale entry (120s old — well beyond the 60s TTL)
+    with wh._dedup_lock:
+        wh._dedup_cache.clear()
+        wh._dedup_cache["stale-key"] = time.monotonic() - 120
+
+    # Processing a new alert triggers pruning
+    wh._is_duplicate(alert)
+
+    with wh._dedup_lock:
+        assert "stale-key" not in wh._dedup_cache

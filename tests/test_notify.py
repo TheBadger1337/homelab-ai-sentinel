@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import requests
 
 from app.alert_parser import NormalizedAlert
-from app.notify import dispatch, _is_disabled
+from app.notify import dispatch, _is_disabled, _safe_exc_log
 
 
 def _make_alert(**kwargs):
@@ -128,3 +128,37 @@ def test_dispatch_multiple_failures_all_collected():
     assert len(errors) == 2
     assert any("discord" in e for e in errors)
     assert any("slack" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# _safe_exc_log
+# ---------------------------------------------------------------------------
+
+def test_safe_exc_log_includes_type_and_status_when_response():
+    resp = MagicMock()
+    resp.status_code = 403
+    exc = requests.HTTPError()
+    exc.response = resp
+    log = _safe_exc_log(exc)
+    assert "HTTPError" in log
+    assert "403" in log
+
+
+def test_safe_exc_log_no_status_when_no_response():
+    exc = requests.ConnectionError("unreachable")
+    exc.response = None
+    log = _safe_exc_log(exc)
+    assert "ConnectionError" in log
+    assert "HTTP" not in log
+
+
+def test_safe_exc_log_never_includes_url():
+    exc = requests.HTTPError()
+    exc.response = None
+    # Even if a request object with a URL is set, the log should not contain it
+    mock_req = MagicMock()
+    mock_req.url = "https://hooks.slack.com/services/secret-token/path"
+    exc.request = mock_req
+    log = _safe_exc_log(exc)
+    assert "hooks.slack.com" not in log
+    assert "secret-token" not in log

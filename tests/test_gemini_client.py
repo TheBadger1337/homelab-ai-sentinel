@@ -217,3 +217,141 @@ def test_get_ai_insight_no_token(monkeypatch):
 
     mock_post.assert_not_called()
     assert "GEMINI_TOKEN not set" in result["insight"]
+
+
+# ---------------------------------------------------------------------------
+# _truncate_details
+# ---------------------------------------------------------------------------
+
+def test_truncate_details_clips_to_max_keys():
+    big = {str(i): "val" for i in range(gc._DETAILS_MAX_KEYS + 5)}
+    result = gc._truncate_details(big)
+    assert len(result) == gc._DETAILS_MAX_KEYS
+
+
+def test_truncate_details_truncates_long_strings():
+    d = {"key": "x" * (gc._DETAILS_MAX_VALUE_LEN + 100)}
+    result = gc._truncate_details(d)
+    assert len(result["key"]) == gc._DETAILS_MAX_VALUE_LEN
+
+
+def test_truncate_details_preserves_int():
+    result = gc._truncate_details({"n": 42})
+    assert result["n"] == 42
+    assert isinstance(result["n"], int)
+
+
+def test_truncate_details_preserves_none():
+    assert gc._truncate_details({"n": None})["n"] is None
+
+
+def test_truncate_details_preserves_bool():
+    assert gc._truncate_details({"b": True})["b"] is True
+
+
+def test_truncate_details_empty_stays_empty():
+    assert gc._truncate_details({}) == {}
+
+
+# ---------------------------------------------------------------------------
+# _strip_markdown_fence
+# ---------------------------------------------------------------------------
+
+def test_strip_fence_plain_json_unchanged():
+    raw = '{"insight": "ok", "suggested_actions": []}'
+    assert gc._strip_markdown_fence(raw) == raw
+
+
+def test_strip_fence_removes_backtick_fence():
+    raw = '```\n{"insight": "ok"}\n```'
+    assert gc._strip_markdown_fence(raw) == '{"insight": "ok"}'
+
+
+def test_strip_fence_removes_json_prefixed_fence():
+    raw = '```json\n{"insight": "ok"}\n```'
+    assert gc._strip_markdown_fence(raw) == '{"insight": "ok"}'
+
+
+def test_strip_fence_no_newline_returned_unchanged():
+    raw = "```json"  # starts with fence but has no newline
+    assert gc._strip_markdown_fence(raw) == raw
+
+
+def test_strip_fence_no_closing_fence():
+    raw = '```\n{"k": "v"}'  # no closing ```
+    assert gc._strip_markdown_fence(raw) == '{"k": "v"}'
+
+
+# ---------------------------------------------------------------------------
+# get_ai_insight — output sanitization
+# ---------------------------------------------------------------------------
+
+def _setup_insight_env(monkeypatch):
+    monkeypatch.setenv("GEMINI_TOKEN", "test-token")
+    monkeypatch.setenv("GEMINI_RPM", "0")
+    monkeypatch.setenv("GEMINI_RETRIES", "0")
+    monkeypatch.setenv("GEMINI_RETRY_BACKOFF", "0")
+    with gc._rpm_lock:
+        gc._rpm_call_times.clear()
+
+
+def _make_gemini_resp(data: dict):
+    """Mock a valid Gemini API response wrapping the given dict as JSON text."""
+    import json as _json
+    mock = MagicMock()
+    mock.status_code = 200
+    mock.raise_for_status.return_value = None
+    mock.json.return_value = {
+        "candidates": [{"content": {"parts": [{"text": _json.dumps(data)}]}}]
+    }
+    return mock
+
+
+def test_get_ai_insight_non_string_insight_coerced(monkeypatch):
+    _setup_insight_env(monkeypatch)
+    with patch.object(gc._session, "post", return_value=_make_gemini_resp({"insight": 42, "suggested_actions": []})):
+        result = gc.get_ai_insight(_make_alert())
+    assert result["insight"] == "42"
+
+
+def test_get_ai_insight_non_list_actions_treated_as_empty(monkeypatch):
+    _setup_insight_env(monkeypatch)
+    with patch.object(gc._session, "post", return_value=_make_gemini_resp({"insight": "ok", "suggested_actions": "not a list"})):
+        result = gc.get_ai_insight(_make_alert())
+    assert result["suggested_actions"] == []
+
+
+def test_get_ai_insight_actions_capped_at_five(monkeypatch):
+    _setup_insight_env(monkeypatch)
+    actions = [f"step{i}" for i in range(10)]
+    with patch.object(gc._session, "post", return_value=_make_gemini_resp({"insight": "ok", "suggested_actions": actions})):
+        result = gc.get_ai_insight(_make_alert())
+    assert len(result["suggested_actions"]) == 5
+
+
+def test_get_ai_insight_insight_capped_at_2000(monkeypatch):
+    _setup_insight_env(monkeypatch)
+    with patch.object(gc._session, "post", return_value=_make_gemini_resp({"insight": "x" * 5000, "suggested_actions": []})):
+        result = gc.get_ai_insight(_make_alert())
+    assert len(result["insight"]) == 2000
+
+
+def test_get_ai_insight_action_items_coerced_to_str(monkeypatch):
+    _setup_insight_env(monkeypatch)
+    with patch.object(gc._session, "post", return_value=_make_gemini_resp({"insight": "ok", "suggested_actions": [1, 2, 3]})):
+        result = gc.get_ai_insight(_make_alert())
+    assert result["suggested_actions"] == ["1", "2", "3"]
+
+
+def test_get_ai_insight_json_parse_error_returns_fallback(monkeypatch):
+    _setup_insight_env(monkeypatch)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "candidates": [{"content": {"parts": [{"text": "not valid json at all"}]}}]
+    }
+    with patch.object(gc._session, "post", return_value=mock_resp):
+        result = gc.get_ai_insight(_make_alert())
+    assert "parse error" in result["insight"]
+    assert isinstance(result["suggested_actions"], list)

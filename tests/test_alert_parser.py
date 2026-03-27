@@ -20,7 +20,7 @@ def test_uptime_kuma_detected():
 def test_uptime_kuma_down():
     data = {
         "heartbeat": {"status": 0, "msg": "Connection refused", "ping": None},
-        "monitor": {"name": "Nginx", "url": "http://192.168.1.10:81", "type": "http"},
+        "monitor": {"name": "Nginx", "url": "http://10.0.0.10:81", "type": "http"},
     }
     alert = parse_alert(data)
     assert alert.status == "down"
@@ -32,7 +32,7 @@ def test_uptime_kuma_down():
 def test_uptime_kuma_up():
     data = {
         "heartbeat": {"status": 1, "msg": "OK", "ping": 4},
-        "monitor": {"name": "Vaultwarden", "url": "https://vw.home.internal"},
+        "monitor": {"name": "Vaultwarden", "url": "https://vaultwarden.example.com"},
         "msg": "Vaultwarden is back up",
     }
     alert = parse_alert(data)
@@ -443,7 +443,7 @@ _ZABBIX_PROBLEM = {
     "trigger_severity": "High",
     "trigger_status": "PROBLEM",
     "host_name": "server1",
-    "host_ip": "192.168.1.10",
+    "host_ip": "10.0.0.10",
     "event_message": "CPU usage is above 90%",
     "item_name": "CPU utilization",
     "item_value": "93.5",
@@ -482,7 +482,7 @@ def test_zabbix_details_populated():
     alert = parse_alert(_ZABBIX_PROBLEM)
     assert alert.details["trigger"] == "High CPU load"
     assert alert.details["item_value"] == "93.5"
-    assert alert.details["host_ip"] == "192.168.1.10"
+    assert alert.details["host_ip"] == "10.0.0.10"
 
 
 def test_zabbix_not_triggered_without_severity():
@@ -497,7 +497,7 @@ def test_zabbix_not_triggered_without_severity():
 _CHECKMK_SERVICE_CRIT = {
     "NOTIFICATIONTYPE": "PROBLEM",
     "HOSTNAME": "web-server",
-    "HOSTADDRESS": "192.168.1.20",
+    "HOSTADDRESS": "10.0.0.20",
     "SERVICEDESC": "HTTP",
     "SERVICESTATE": "CRIT",
     "SERVICEOUTPUT": "Connection refused",
@@ -507,7 +507,7 @@ _CHECKMK_SERVICE_CRIT = {
 _CHECKMK_HOST_DOWN = {
     "NOTIFICATIONTYPE": "PROBLEM",
     "HOSTNAME": "router",
-    "HOSTADDRESS": "192.168.1.1",
+    "HOSTADDRESS": "10.0.0.1",
     "HOSTSTATE": "DOWN",
     "HOSTOUTPUT": "PING CRITICAL - Packet loss = 100%",
 }

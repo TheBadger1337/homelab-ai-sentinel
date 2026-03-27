@@ -178,3 +178,26 @@ def test_post_alert_raises_on_http_error(monkeypatch):
     with patch("app.whatsapp_client.requests.post", return_value=mock_resp):
         with pytest.raises(requests.HTTPError):
             post_alert(_make_alert(), _AI)
+
+
+def test_post_alert_raises_runtime_error_on_error_body(monkeypatch):
+    """Meta returns HTTP 200 with an error body for auth/policy failures."""
+    _wa_env(monkeypatch)
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.return_value = {
+        "error": {"code": 190, "message": "Invalid OAuth access token"}
+    }
+    with patch("app.whatsapp_client.requests.post", return_value=mock_resp):
+        with pytest.raises(RuntimeError, match="WhatsApp API error"):
+            post_alert(_make_alert(), _AI)
+
+
+def test_post_alert_succeeds_on_non_json_200(monkeypatch):
+    """Non-JSON 2xx response is treated as success."""
+    _wa_env(monkeypatch)
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    mock_resp.json.side_effect = ValueError("not json")
+    with patch("app.whatsapp_client.requests.post", return_value=mock_resp):
+        post_alert(_make_alert(), _AI)  # must not raise

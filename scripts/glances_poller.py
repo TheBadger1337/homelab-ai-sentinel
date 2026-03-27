@@ -11,7 +11,7 @@ Usage:
     python3 scripts/glances_poller.py
 
 Environment variables:
-    GLANCES_URL          Base URL of the Glances API, e.g. http://192.168.1.10:61208
+    GLANCES_URL          Base URL of the Glances API, e.g. http://10.0.0.10:61208
     SENTINEL_URL         Sentinel webhook URL, e.g. http://localhost:5000/webhook
     SENTINEL_SECRET      Optional: WEBHOOK_SECRET value (sets X-Webhook-Token header)
     GLANCES_HOST_LABEL   Human-readable hostname label (defaults to host in GLANCES_URL)
@@ -20,7 +20,7 @@ Environment variables:
 Docker example:
     docker run -d \\
       --name glances-poller \\
-      -e GLANCES_URL=http://192.168.1.10:61208 \\
+      -e GLANCES_URL=http://10.0.0.10:61208 \\
       -e SENTINEL_URL=http://sentinel:5000/webhook \\
       -e POLL_INTERVAL=30 \\
       python:3.11-slim python3 /app/glances_poller.py

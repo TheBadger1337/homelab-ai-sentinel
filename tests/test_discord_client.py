@@ -4,8 +4,13 @@ Unit tests for discord_client.py
 Tests the embed builder — pure function, no network calls required.
 """
 
+from unittest.mock import MagicMock, patch
+
+import pytest
+import requests
+
 from app.alert_parser import NormalizedAlert
-from app.discord_client import _build_embed
+from app.discord_client import _build_embed, _strip_mentions, post_alert
 
 
 def _make_alert(**kwargs):
@@ -156,3 +161,55 @@ def test_non_string_insight_coerced_to_string():
     insight_fields = [f for f in embed["fields"] if "Insight" in f["name"]]
     assert insight_fields
     assert "42" in insight_fields[0]["value"]
+
+
+# ---------------------------------------------------------------------------
+# _strip_mentions
+# ---------------------------------------------------------------------------
+
+def test_strip_mentions_neutralizes_everyone():
+    result = _strip_mentions("alert: @everyone check this")
+    assert "@\u200beveryone" in result
+    assert "@everyone" not in result.replace("@\u200beveryone", "")
+
+
+def test_strip_mentions_neutralizes_here():
+    result = _strip_mentions("hey @here look at this")
+    assert "@\u200bhere" in result
+    assert "@here" not in result.replace("@\u200bhere", "")
+
+
+def test_strip_mentions_clean_text_unchanged():
+    text = "No mentions here at all"
+    assert _strip_mentions(text) == text
+
+
+# ---------------------------------------------------------------------------
+# post_alert
+# ---------------------------------------------------------------------------
+
+def test_post_alert_skips_when_no_url(monkeypatch):
+    monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
+    with patch("app.discord_client.requests.post") as mock_post:
+        post_alert(_make_alert(), _make_ai())
+    mock_post.assert_not_called()
+
+
+def test_post_alert_posts_when_url_set(monkeypatch):
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.return_value = None
+    with patch("app.discord_client.requests.post", return_value=mock_resp) as mock_post:
+        post_alert(_make_alert(), _make_ai())
+    mock_post.assert_called_once()
+    _, kwargs = mock_post.call_args
+    assert "embeds" in kwargs["json"]
+
+
+def test_post_alert_raises_on_http_error(monkeypatch):
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/test")
+    mock_resp = MagicMock()
+    mock_resp.raise_for_status.side_effect = requests.HTTPError("400")
+    with patch("app.discord_client.requests.post", return_value=mock_resp):
+        with pytest.raises(requests.HTTPError):
+            post_alert(_make_alert(), _make_ai())

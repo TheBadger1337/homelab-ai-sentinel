@@ -10,7 +10,7 @@ import pytest
 import requests
 
 from app.alert_parser import NormalizedAlert
-from app.slack_client import _build_message, post_alert
+from app.slack_client import _build_message, _strip_mentions, post_alert
 
 
 def _make_alert(**kwargs):
@@ -178,3 +178,30 @@ def test_post_alert_raises_on_http_error(monkeypatch):
     with patch("app.slack_client.requests.post", return_value=mock_resp):
         with pytest.raises(requests.HTTPError):
             post_alert(_make_alert(), _AI)
+
+
+# ---------------------------------------------------------------------------
+# _strip_mentions
+# ---------------------------------------------------------------------------
+
+def test_strip_mentions_neutralizes_here():
+    result = _strip_mentions("<!here> alert fired")
+    assert "<!here>" not in result
+    assert "@here" in result
+
+
+def test_strip_mentions_neutralizes_channel():
+    result = _strip_mentions("<!channel> check this")
+    assert "<!channel>" not in result
+    assert "@channel" in result
+
+
+def test_strip_mentions_neutralizes_everyone():
+    result = _strip_mentions("<!everyone> important")
+    assert "<!everyone>" not in result
+    assert "@everyone" in result
+
+
+def test_strip_mentions_clean_text_unchanged():
+    text = "No Slack mentions here"
+    assert _strip_mentions(text) == text

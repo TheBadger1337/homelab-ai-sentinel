@@ -395,11 +395,14 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - SSRF protection · pattern-based secret redaction · IPv6 loopback hardening
 - O(k) dedup pruning · dedup memory cap · deque-based rate limiter
 - Non-root container user · pip hash pinning · unhandled exception URL-safe logging
+- Per-service severity thresholds (`MIN_SEVERITY`, `THRESHOLD_<SERVICE>`)
+- Persistent SQLite alert log (WAL mode, named Docker volume)
+- Alert history injected into AI prompt — pattern detection across recurring failures
 
 **Planned:**
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
-- Per-service severity thresholds — suppress info-level alerts from noisy monitors
-- Persistent alert log (SQLite)
+- Metric-based thresholds — suppress memory alerts below a configured % threshold
+- Quiet hours — suppress non-critical alerts during configured time windows
 - Web UI — recent alerts dashboard
 - Teams, Pushover, PagerDuty notification targets *(lower priority)*
 

@@ -15,6 +15,11 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 RUN groupadd --gid 1000 appuser && \
     useradd --uid 1000 --gid 1000 --no-create-home --shell /bin/false appuser
 
+# Create the data directory for the SQLite alert log.
+# Named volume mounts copy the image directory's ownership — setting it here
+# ensures the volume is initialised with the correct UID before USER drops root.
+RUN mkdir /data && chown 1000:1000 /data
+
 # Copy application files and set ownership in a single layer.
 # --chown avoids a separate RUN chown that would double the layer size for /app.
 COPY --chown=1000:1000 . .

@@ -8,9 +8,12 @@ Flow:
   4. Parse body
   5. Normalize alert via alert_parser
   6. Deduplication check — suppress repeat alerts within the TTL window
-  7. Call AI provider for Insight + Suggested Actions
-  8. Dispatch to all configured notification platforms in parallel
-  9. Return JSON response
+  7. Severity threshold check — suppress alerts below configured threshold
+  8. Query recent alert history for AI context
+  9. Call AI provider for Insight + Suggested Actions
+  10. Dispatch to all configured notification platforms in parallel
+  11. Log alert to SQLite database
+  12. Return JSON response
 
 Security notes
 ==============
@@ -48,9 +51,11 @@ from threading import Lock
 
 from flask import Blueprint, jsonify, request
 
+from .alert_db import get_recent_alerts, log_alert
 from .alert_parser import NormalizedAlert, parse_alert
 from .gemini_client import get_ai_insight
 from . import notify
+from .thresholds import should_suppress
 from .utils import _env_int
 
 logger = logging.getLogger(__name__)
@@ -221,13 +226,26 @@ def webhook():
         )
         return jsonify({"status": "deduplicated"}), 200
 
-    # 7. AI analysis
-    ai = get_ai_insight(alert)
+    # 7. Severity threshold — suppress alerts below the configured floor.
+    #    Suppressed alerts are still logged (notified=False) so history reflects
+    #    true alert rate. Dedup runs first so only unique suppressed alerts are logged.
+    if should_suppress(alert):
+        log_alert(alert, None, notified=False)
+        return jsonify({"status": "suppressed"}), 200
+
+    # 8. Query recent history for this service to give the AI pattern context.
+    history = get_recent_alerts(alert.service_name)
+
+    # 9. AI analysis
+    ai = get_ai_insight(alert, history=history)
     logger.info("AI insight generated for %s", alert.service_name)
     logger.debug("AI response: insight=%r actions=%s", ai.get("insight", "")[:200], ai.get("suggested_actions"))
 
-    # 8. Dispatch to all configured platforms
+    # 10. Dispatch to all configured platforms
     notification_errors = notify.dispatch(alert, ai)
+
+    # 11. Log the processed alert (notified=True means notifications were attempted)
+    log_alert(alert, ai, notified=True)
 
     response: dict = {
         "status": "processed",

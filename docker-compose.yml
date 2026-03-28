@@ -17,6 +17,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    volumes:
+      - sentinel-data:/data
     logging:
       driver: json-file
       options:
@@ -46,4 +48,5 @@ services:
       - MODE=native
 
 volumes:
+  sentinel-data:
   signal-data:

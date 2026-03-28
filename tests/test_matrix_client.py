@@ -174,3 +174,13 @@ def test_post_alert_raises_on_http_error(monkeypatch):
     with patch("app.matrix_client.requests.put", return_value=mock_resp):
         with pytest.raises(requests.HTTPError):
             post_alert(_make_alert(), _AI)
+
+
+def test_post_alert_skips_on_non_http_url(monkeypatch):
+    """SSRF guard: file:// scheme must be rejected before making a request."""
+    monkeypatch.setenv("MATRIX_HOMESERVER", "file:///etc/passwd")
+    monkeypatch.setenv("MATRIX_ACCESS_TOKEN", "syt_token")
+    monkeypatch.setenv("MATRIX_ROOM_ID", "!abc123:matrix.org")
+    with patch("app.matrix_client.requests.put") as mock_put:
+        post_alert(_make_alert(), _AI)
+    mock_put.assert_not_called()

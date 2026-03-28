@@ -6,6 +6,7 @@ plus the AI-generated Insight and Suggested Actions.
 """
 
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,14 +14,20 @@ import requests
 
 from .alert_parser import NormalizedAlert
 
-# Discord renders @everyone and @here in embed fields as visual mentions.
+# Discord renders @everyone and @here as visual mentions in embed fields.
 # Strip them by inserting a zero-width space so the text is inert.
 _MENTION_SUBS = [("@everyone", "@\u200beveryone"), ("@here", "@\u200bhere")]
+
+# Discord renders <@USERID>, <@!USERID> (nickname), and <@&ROLEID> as
+# clickable mentions that ping users or roles. Remove them entirely from
+# untrusted alert content so a crafted payload cannot mention arbitrary users.
+_USER_MENTION_RE = re.compile(r"<@[!&]?[0-9]+>")
 
 
 def _strip_mentions(text: str) -> str:
     for src, dst in _MENTION_SUBS:
         text = text.replace(src, dst)
+    text = _USER_MENTION_RE.sub("", text)
     return text
 
 

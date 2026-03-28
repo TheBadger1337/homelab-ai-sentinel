@@ -154,3 +154,13 @@ def test_post_alert_raises_on_http_error(monkeypatch):
     with patch("app.imessage_client.requests.post", return_value=mock_resp):
         with pytest.raises(requests.HTTPError):
             post_alert(_make_alert(), _AI)
+
+
+def test_post_alert_skips_on_non_http_url(monkeypatch):
+    """SSRF guard: file:// scheme must be rejected before making a request."""
+    monkeypatch.setenv("IMESSAGE_URL", "file:///etc/passwd")
+    monkeypatch.setenv("IMESSAGE_PASSWORD", "hunter2")
+    monkeypatch.setenv("IMESSAGE_TO", "+15551234567")
+    with patch("app.imessage_client.requests.post") as mock_post:
+        post_alert(_make_alert(), _AI)
+    mock_post.assert_not_called()

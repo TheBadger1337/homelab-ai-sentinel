@@ -205,3 +205,13 @@ def test_strip_mentions_neutralizes_everyone():
 def test_strip_mentions_clean_text_unchanged():
     text = "No Slack mentions here"
     assert _strip_mentions(text) == text
+
+
+def test_strip_mentions_removes_user_mention():
+    result = _strip_mentions("ping <@U01234ABCDE> please")
+    assert "<@U01234ABCDE>" not in result
+
+
+def test_strip_mentions_removes_user_mention_with_display_name():
+    result = _strip_mentions("hey <@U01234ABCDE|john> check this")
+    assert "<@U01234ABCDE|john>" not in result

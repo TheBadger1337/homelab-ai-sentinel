@@ -6,6 +6,7 @@ plus the AI-generated Insight and Suggested Actions.
 """
 
 import os
+import re
 from typing import Any
 
 import requests
@@ -23,10 +24,15 @@ _SEVERITY_EMOJI = {
 # will fire a real channel notification. Strip them from all untrusted content.
 _MENTION_SUBS = [("<!here>", "@here"), ("<!channel>", "@channel"), ("<!everyone>", "@everyone")]
 
+# Slack renders <@USERID> and <@USERID|username> as clickable user mentions.
+# Remove them entirely from untrusted alert content.
+_USER_MENTION_RE = re.compile(r"<@[A-Z0-9]+(?:\|[^>]*)?>")
+
 
 def _strip_mentions(text: str) -> str:
     for src, dst in _MENTION_SUBS:
         text = text.replace(src, dst)
+    text = _USER_MENTION_RE.sub("", text)
     return text
 
 

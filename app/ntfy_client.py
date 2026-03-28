@@ -11,6 +11,7 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .utils import _validate_url
 
 _PRIORITY = {
     "critical": "urgent",
@@ -64,6 +65,8 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     """
     ntfy_url = os.environ.get("NTFY_URL", "")
     if not ntfy_url:
+        return
+    if not _validate_url(ntfy_url, "NTFY_URL"):
         return
 
     payload = _build_payload(alert, ai)

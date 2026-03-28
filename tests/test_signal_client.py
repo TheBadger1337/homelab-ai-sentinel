@@ -188,3 +188,13 @@ def test_post_alert_succeeds_on_non_json_200(monkeypatch):
     mock_resp.json.side_effect = ValueError("not json")
     with patch("app.signal_client.requests.post", return_value=mock_resp):
         post_alert(_make_alert(), _AI)  # must not raise
+
+
+def test_post_alert_skips_on_non_http_url(monkeypatch):
+    """SSRF guard: file:// scheme must be rejected before making a request."""
+    monkeypatch.setenv("SIGNAL_API_URL", "file:///etc/passwd")
+    monkeypatch.setenv("SIGNAL_SENDER", "+15551234567")
+    monkeypatch.setenv("SIGNAL_RECIPIENT", "+15559876543")
+    with patch("app.signal_client.requests.post") as mock_post:
+        post_alert(_make_alert(), _AI)
+    mock_post.assert_not_called()

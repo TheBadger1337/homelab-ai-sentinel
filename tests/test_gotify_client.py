@@ -158,3 +158,12 @@ def test_post_alert_strips_trailing_slash_from_url(monkeypatch):
         post_alert(_make_alert(), _AI)
     url = mock_post.call_args[0][0]
     assert "//" not in url.replace("http://", "")
+
+
+def test_post_alert_skips_on_non_http_url(monkeypatch):
+    """SSRF guard: file:// scheme must be rejected before making a request."""
+    monkeypatch.setenv("GOTIFY_URL", "file:///etc/passwd")
+    monkeypatch.setenv("GOTIFY_APP_TOKEN", "mytoken")
+    with patch("app.gotify_client.requests.post") as mock_post:
+        post_alert(_make_alert(), _AI)
+    mock_post.assert_not_called()

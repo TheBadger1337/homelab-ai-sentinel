@@ -312,9 +312,9 @@ Discord/Slack examples:
 
 **Note:** Slack's Block Kit uses `mrkdwn` type for all substantive text fields (source, severity, message, AI insight, suggested actions). Slack renders `<!here>` and `<!channel>` in `mrkdwn` fields and fires a real channel notification. Only the header block uses `plain_text`. Mention stripping is implemented and applied to all `mrkdwn` fields before posting.
 
-**Gap — user and role mention injection (Low):** Both Discord and Slack support `<@USERID>` (user mention) and `<@&ROLEID>` (role mention, Discord) / `<!subteam^ID>` (user group, Slack) syntax. These are not stripped by the current `_strip_mentions` implementations. An attacker who controls a monitored service's name or message field and knows a target user ID can embed `<@123456789>` and trigger a direct ping to that user in the alert channel. This does not fire a channel-wide notification but does ping a specific individual.
+**Gap — user and role mention injection (Low) — FIXED:** Both Discord and Slack support `<@USERID>` (user mention) and `<@&ROLEID>` (role mention, Discord) / `<!subteam^ID>` (user group, Slack) syntax. An attacker who controls a monitored service's name or message field and knows a target user ID can embed `<@123456789>` and trigger a direct ping to that user in the alert channel.
 
-**Recommended addition** to both `discord_client.py` and `slack_client.py`:
+**Implemented fix** in both `discord_client.py` and `slack_client.py`:
 ```python
 import re
 # Strip <@USERID>, <@&ROLEID>, <!subteam^ID|label> patterns
@@ -513,17 +513,7 @@ This is not a Sentinel-specific risk — it applies to any Docker deployment.
 
 In a standard homelab deployment these are operator-set values and the risk is low. In any shared, multi-tenant, or externally-managed deployment — or if the `.secrets.env` file is writable by a less-trusted process — a modified URL value becomes an SSRF vector. The `requests` library will follow any scheme including `file://`, `http://169.254.169.254/` (cloud metadata), or internal services not otherwise reachable from outside Docker.
 
-**Recommended addition** to each affected client's `_is_configured()` or at call time:
-```python
-from urllib.parse import urlparse
-
-def _validate_url(url: str, name: str) -> bool:
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        logger.warning("%s has invalid scheme: %s", name, parsed.scheme)
-        return False
-    return True
-```
+**Implemented fix:** `app/utils.py` exposes `_validate_url(url, env_var)` which rejects any scheme other than `http` or `https` and logs a warning. Applied at call time in all five affected clients before any HTTP request is made.
 
 **Severity in homelab context:** Low — env vars are operator-controlled.
 **Severity in shared deployment:** Medium.
@@ -587,8 +577,6 @@ These are not bugs — they are conscious scope decisions for a homelab tool.
 | No pattern-based secret redaction | False positives on legitimate data; configurable per-deployment | Add regex redaction step in `alert_parser.py` |
 | Dedup cache is per-worker | Multi-worker deployments could process duplicates | Run single worker, or use external Redis |
 | `WEBHOOK_RATE_LIMIT` is per-worker | Each Gunicorn worker maintains its own sliding window; effective global limit is `WEBHOOK_RATE_LIMIT × WORKERS` | Run single worker, or use Nginx `limit_req` upstream |
-| `<@USERID>` / `<@&ROLEID>` mention stripping not implemented | Requires known user/role IDs to exploit; attacker must control alert content | Add `re.sub(r'<[@!][^>]+>', '', text)` in both Discord and Slack clients |
-| SSRF via URL env vars (SIGNAL_API_URL, GOTIFY_URL, etc.) | Env vars are operator-controlled; low risk in standard homelab | Add scheme validation in affected clients for shared deployments |
 
 ---
 
@@ -632,8 +620,8 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | IP-based rate limiting | ⚠️ Recommended | Add Nginx/Caddy upstream |
 | Pattern-based secret redaction | ⚠️ Recommended | Add to `alert_parser.py` for sensitive deployments |
 | `@everyone` / `@here` mention stripping | ✅ Implemented | Zero-width space in `discord_client.py`; `_strip_mentions()` in `slack_client.py` |
-| `<@USERID>` / `<@&ROLEID>` mention stripping | ⚠️ Recommended | Add `re.sub(r'<[@!][^>]+>', '', text)` to both clients — see 4B |
-| URL env var scheme validation (SSRF) | ⚠️ Recommended | Add scheme check to Signal, Gotify, Ntfy, iMessage, Matrix clients — see 6F |
+| `<@USERID>` / `<@&ROLEID>` mention stripping | ✅ Implemented | `_USER_MENTION_RE` regex in `discord_client.py` and `slack_client.py` — see 4B |
+| URL env var scheme validation (SSRF) | ✅ Implemented | `_validate_url()` in `app/utils.py`, applied to all five affected clients — see 6F |
 | Generic parser prompt injection surface | ⚠️ Known limitation | Wider than named parsers; mitigated by `WEBHOOK_SECRET` and field caps — see 1D |
 | URL validation in AI output | ⚠️ Recommended | Low priority for trusted networks |
 | Non-root container user | ⚠️ Recommended | Add `USER 1000` to Dockerfile |

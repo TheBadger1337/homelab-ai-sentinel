@@ -2,7 +2,7 @@
 Unit tests for utils.py helper functions.
 """
 
-from app.utils import _env_int, _env_float
+from app.utils import _env_int, _env_float, _validate_url
 
 
 def test_env_int_returns_default_on_invalid_value(monkeypatch):
@@ -34,3 +34,27 @@ def test_env_float_parses_valid_value(monkeypatch):
 def test_env_float_returns_default_when_unset(monkeypatch):
     monkeypatch.delenv("TEST_UTILS_FLOAT", raising=False)
     assert _env_float("TEST_UTILS_FLOAT", 2.5) == 2.5
+
+
+# ---------------------------------------------------------------------------
+# _validate_url
+# ---------------------------------------------------------------------------
+
+def test_validate_url_accepts_http():
+    assert _validate_url("http://localhost:8080", "TEST_VAR") is True
+
+
+def test_validate_url_accepts_https():
+    assert _validate_url("https://example.com/path", "TEST_VAR") is True
+
+
+def test_validate_url_rejects_file_scheme():
+    assert _validate_url("file:///etc/passwd", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_ftp_scheme():
+    assert _validate_url("ftp://files.example.com", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_no_scheme():
+    assert _validate_url("localhost:8080", "TEST_VAR") is False

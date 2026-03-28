@@ -184,6 +184,21 @@ def test_strip_mentions_clean_text_unchanged():
     assert _strip_mentions(text) == text
 
 
+def test_strip_mentions_removes_user_mention():
+    result = _strip_mentions("ping <@123456789> now")
+    assert "<@123456789>" not in result
+
+
+def test_strip_mentions_removes_nickname_mention():
+    result = _strip_mentions("ping <@!123456789> now")
+    assert "<@!123456789>" not in result
+
+
+def test_strip_mentions_removes_role_mention():
+    result = _strip_mentions("alert <@&987654321> oncall")
+    assert "<@&987654321>" not in result
+
+
 # ---------------------------------------------------------------------------
 # post_alert
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .utils import _validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,8 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     password = os.environ.get("IMESSAGE_PASSWORD", "")
     recipient = os.environ.get("IMESSAGE_TO", "")
     if not url or not password or not recipient:
+        return
+    if not _validate_url(url, "IMESSAGE_URL"):
         return
 
     message = _build_message(alert, ai)

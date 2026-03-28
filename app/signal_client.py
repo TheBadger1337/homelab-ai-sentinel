@@ -15,6 +15,7 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .utils import _validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,8 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     sender = os.environ.get("SIGNAL_SENDER", "")
     recipient = os.environ.get("SIGNAL_RECIPIENT", "")
     if not api_url or not sender or not recipient:
+        return
+    if not _validate_url(api_url, "SIGNAL_API_URL"):
         return
 
     text = _build_message(alert, ai)

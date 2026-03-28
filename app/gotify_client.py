@@ -23,6 +23,7 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .utils import _validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,8 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     url = os.environ.get("GOTIFY_URL", "")
     token = os.environ.get("GOTIFY_APP_TOKEN", "")
     if not url or not token:
+        return
+    if not _validate_url(url, "GOTIFY_URL"):
         return
 
     payload = _build_payload(alert, ai)

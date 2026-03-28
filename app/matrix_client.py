@@ -34,6 +34,7 @@ from urllib.parse import quote
 import requests
 
 from .alert_parser import NormalizedAlert
+from .utils import _validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,8 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     token = os.environ.get("MATRIX_ACCESS_TOKEN", "")
     room_id = os.environ.get("MATRIX_ROOM_ID", "")
     if not homeserver or not token or not room_id:
+        return
+    if not _validate_url(homeserver, "MATRIX_HOMESERVER"):
         return
 
     plain, formatted = _build_message(alert, ai)

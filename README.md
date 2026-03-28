@@ -334,7 +334,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Covers all 11 parsers, all 10 notification clients, parallel dispatch, auth, deduplication, rate limiting, retry/backoff, and Flask error handlers. No network access required.
+Covers all 11 parsers, all 10 notification clients, HMAC auth, deduplication, rate limiting, retry/backoff, SSRF protection, secret redaction, and Flask error handlers. No network access required.
 
 ---
 
@@ -389,7 +389,8 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 **v1.0 — complete:**
 - 11 alert source parsers · 10 notification platforms · parallel dispatch via `ThreadPoolExecutor`
 - Auth (`WEBHOOK_SECRET`) · deduplication · webhook rate limiter · AI RPM limiter
-- AI retry with exponential backoff · gthread Gunicorn workers · 297 tests
+- AI retry with exponential backoff · gthread Gunicorn workers
+- SSRF protection · secret redaction · HMAC auth · dedup cache · rate limiting
 
 **Planned:**
 - Teams, Pushover, PagerDuty notification targets

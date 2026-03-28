@@ -1,0 +1,5 @@
+# Historical commits — test JWT fixture (added betterleaks:allow in 905115a)
+7409bb1d9bcb8705fc470ffbf0eaa0426fe271c6:tests/test_alert_parser.py:jwt:237
+578534049be229c638564da7de87aa35532d5baa:tests/test_alert_parser.py:jwt:237
+# Historical commit — README Matrix setup example (placeholder token, line removed in later commit)
+eb5c738520e5d0dee74a39a27b3597a177074ff1:README.md:curl-auth-header:454

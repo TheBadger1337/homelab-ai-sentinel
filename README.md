@@ -396,13 +396,13 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - O(k) dedup pruning · dedup memory cap · deque-based rate limiter
 - Non-root container user · pip hash pinning · unhandled exception URL-safe logging
 - Per-service severity thresholds (`MIN_SEVERITY`, `THRESHOLD_<SERVICE>`)
+- Metric-based thresholds (`METRIC_THRESHOLD_<KEY>`) — suppress below a configured % floor; extracts from structured details or message string
+- Quiet hours (`QUIET_HOURS`, `QUIET_HOURS_MIN_SEVERITY`) — suppress non-critical alerts during configured time windows
 - Persistent SQLite alert log (WAL mode, named Docker volume)
 - Alert history injected into AI prompt — pattern detection across recurring failures
 
 **Planned:**
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
-- Metric-based thresholds — suppress memory alerts below a configured % threshold
-- Quiet hours — suppress non-critical alerts during configured time windows
 - Web UI — recent alerts dashboard
 - Teams, Pushover, PagerDuty notification targets *(lower priority)*
 

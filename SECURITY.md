@@ -737,9 +737,7 @@ These are not bugs — they are conscious scope decisions for a homelab tool.
 |---|---|---|
 | No IP-based rate limiting | Requires Redis or sticky sessions; out of scope for single-container homelab | Put Nginx/Caddy in front |
 | No alert state machine (dedup is identity-based only) | Correlating open/close events requires persistent storage | Use monitoring tool's native state tracking |
-| No URL/link validation in output | Platform-specific, low priority for trusted networks | Manual review of AI output |
 | Dedup cache is per-worker | Multi-worker deployments could process duplicates | Run single worker, or use external Redis |
-| `WEBHOOK_RATE_LIMIT` is per-worker | Each Gunicorn worker maintains its own sliding window; effective global limit is `WEBHOOK_RATE_LIMIT × WORKERS` | Run single worker, or use Nginx `limit_req` upstream |
 
 ---
 
@@ -794,7 +792,7 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | Docker log rotation | ✅ Implemented | `max-size: 10m, max-file: 3` in `docker-compose.yml` — see 3C |
 | Python dep hash pinning | ✅ Implemented | `pip-compile --generate-hashes`; Docker build fails on hash mismatch — see 6I |
 | Generic parser prompt injection surface | ⚠️ Known limitation | Wider than named parsers; mitigated by `WEBHOOK_SECRET` and field caps — see 1D |
-| URL validation in AI output | ⚠️ Recommended | Low priority for trusted networks |
+| URL defanging in AI output | ✅ Implemented | `_defang_urls()` in `app/gemini_client.py` — replaces `://` with `[://]` to prevent auto-linking |
 | Non-root container user (explicit UID/GID 1000) | ✅ Implemented | `Dockerfile` — `USER 1000`, `COPY --chown=1000:1000` — see 6A |
 | pip-audit dependency CVE scanning | ⚠️ Recommended | `pip-audit -r requirements.txt` — see 6I |
 | Encrypted backups | ⚠️ Recommended | Encrypt or exclude `.secrets.env` from homelab backups — see 8A |
@@ -807,5 +805,5 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | E2E encryption of alerts in transit | ❌ Out of scope | TLS at Caddy/Nginx; alert data plaintext without it — see 6G |
 | `docker inspect` credential exposure | ❌ Out of scope | Restrict `docker` group membership; see 6D |
 | Docker group = effective root | ⚠️ Recommended | Use rootless Docker for service accounts; see 6E |
-| `WEBHOOK_RATE_LIMIT` per-worker (not global) | ⚠️ Known limitation | Use Nginx `limit_req` for global enforcement; see Known Limitations |
+| `WEBHOOK_RATE_LIMIT` global across workers | ✅ Implemented | `check_and_record_rate()` in `app/alert_db.py` — SQLite `rate_log` table shared by all Gunicorn workers |
 | Gemini free tier sends data to Google for model training | ⚠️ Recommended | Use paid tier or self-hosted LLM for sensitive data; see 5C |

@@ -46,14 +46,13 @@ import hmac
 import logging
 import os
 import time
-from collections import deque
 from threading import Lock
 
 from flask import Blueprint, jsonify, request
 
-from .alert_db import get_recent_alerts, log_alert
+from .alert_db import check_and_record_rate, get_db_stats, get_recent_alerts, log_alert
 from .alert_parser import NormalizedAlert, parse_alert
-from .gemini_client import get_ai_insight
+from .gemini_client import get_ai_insight, get_rpm_status
 from . import notify
 from .thresholds import should_suppress
 from .utils import _env_int
@@ -78,9 +77,7 @@ _DEDUP_MAX_SIZE = 10_000  # max entries; evicts oldest when exceeded
 # deployments protected by WEBHOOK_SECRET. Enable for internet-facing setups:
 #   WEBHOOK_RATE_LIMIT=60    # allow 60 requests per window
 #   WEBHOOK_RATE_WINDOW=60   # 60-second window → 1 req/s average burst-safe
-
-_rate_timestamps: deque[float] = deque()
-_rate_lock = Lock()
+# Backed by SQLite (rate_log table) — shared across all Gunicorn workers.
 
 
 def _dedup_key(alert: NormalizedAlert) -> str:
@@ -137,22 +134,14 @@ def _is_duplicate(alert: NormalizedAlert) -> bool:
 def _check_rate_limit() -> bool:
     """
     Return True if the request should be rejected (rate limit exceeded).
-    Uses a sliding window counter. Thread-safe.
+    Delegates to the SQLite-backed counter shared across all workers.
     Returns False (allow) when WEBHOOK_RATE_LIMIT is 0 or unset.
     """
     limit = _env_int("WEBHOOK_RATE_LIMIT", 0)
     if limit <= 0:
         return False  # limiter disabled
     window = _env_int("WEBHOOK_RATE_WINDOW", 60)
-    now = time.monotonic()
-    with _rate_lock:
-        cutoff = now - window
-        while _rate_timestamps and _rate_timestamps[0] < cutoff:
-            _rate_timestamps.popleft()
-        if len(_rate_timestamps) >= limit:
-            return True
-        _rate_timestamps.append(now)
-        return False
+    return check_and_record_rate(limit, window)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +167,14 @@ def _check_secret() -> bool:
 
 @webhook_bp.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"})
+    db = get_db_stats()
+    rpm = get_rpm_status()
+    return jsonify({
+        "status": "ok",
+        "db": db,
+        "ai": rpm,
+        "workers": os.environ.get("WEB_CONCURRENCY", "1"),
+    })
 
 
 @webhook_bp.route("/webhook", methods=["POST"])

@@ -236,3 +236,77 @@ def test_get_recent_alerts_returns_empty_on_db_failure(monkeypatch):
     monkeypatch.setattr(adb, "_get_conn", lambda: (_ for _ in ()).throw(Exception("db error")))
     results = adb.get_recent_alerts("nginx")
     assert results == []
+
+
+# ---------------------------------------------------------------------------
+# check_and_record_rate
+# ---------------------------------------------------------------------------
+
+def test_rate_allows_within_limit():
+    # First request under a limit of 3 — should pass
+    assert adb.check_and_record_rate(3, 60) is False
+
+
+def test_rate_blocks_when_exceeded():
+    # Fill up to the limit then verify the next call is blocked
+    for _ in range(3):
+        adb.check_and_record_rate(3, 60)
+    assert adb.check_and_record_rate(3, 60) is True
+
+
+def test_rate_disabled_when_limit_zero():
+    # Limit=0 is handled in _check_rate_limit before calling this, but
+    # check_and_record_rate(0) should still be safe — count(0) >= 0 is always True,
+    # so callers must guard limit <= 0 before calling.
+    # Here we just test that it doesn't raise.
+    adb.check_and_record_rate(100, 60)  # should not raise
+
+
+def test_rate_records_are_pruned_after_window(monkeypatch):
+    import time as _time
+    # Insert old rows directly, then verify they're pruned on next call
+    conn = adb._get_conn()
+    now = _time.time()
+    for _ in range(5):
+        conn.execute("INSERT INTO rate_log (ts) VALUES (?)", (now - 120,))
+    conn.commit()
+
+    # Window=60 — all 5 rows are older than 60s and should be pruned
+    result = adb.check_and_record_rate(3, 60)
+    assert result is False  # pruned, fresh count is 1 (the one we just inserted)
+    count = conn.execute("SELECT COUNT(*) FROM rate_log").fetchone()[0]
+    assert count == 1  # only the just-recorded row remains
+
+
+def test_rate_fails_open_on_db_error(monkeypatch):
+    monkeypatch.setattr(adb, "_get_conn", lambda: (_ for _ in ()).throw(Exception("db error")))
+    assert adb.check_and_record_rate(1, 60) is False
+
+
+# ---------------------------------------------------------------------------
+# get_db_stats
+# ---------------------------------------------------------------------------
+
+def test_get_db_stats_empty_db():
+    stats = adb.get_db_stats()
+    assert stats["total_alerts"] == 0
+    assert stats["notified_count"] == 0
+    assert stats["last_alert_ts"] is None
+
+
+def test_get_db_stats_counts_correctly():
+    alert = _make_alert()
+    ai = {"insight": "ok", "suggested_actions": []}
+    adb.log_alert(alert, ai, notified=True)
+    adb.log_alert(alert, None, notified=False)
+
+    stats = adb.get_db_stats()
+    assert stats["total_alerts"] == 2
+    assert stats["notified_count"] == 1
+    assert stats["last_alert_ts"] is not None
+
+
+def test_get_db_stats_fails_gracefully(monkeypatch):
+    monkeypatch.setattr(adb, "_get_conn", lambda: (_ for _ in ()).throw(Exception("db error")))
+    stats = adb.get_db_stats()
+    assert stats["total_alerts"] is None

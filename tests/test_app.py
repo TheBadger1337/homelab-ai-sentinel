@@ -237,12 +237,11 @@ def test_rate_limit_blocks_when_exceeded(client, monkeypatch):
     monkeypatch.setenv("WEBHOOK_RATE_WINDOW", "60")
     monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
 
-    # Clear the rate timestamp list so prior test runs don't bleed in
-    import app.webhook as wh
-    with wh._rate_lock:
-        wh._rate_timestamps.clear()
+    # Simulate the DB-backed rate checker: first call passes, second is blocked.
+    results = iter([False, True])
 
-    with patch("app.webhook.get_ai_insight") as mock_ai, \
+    with patch("app.webhook.check_and_record_rate", side_effect=lambda l, w: next(results)), \
+         patch("app.webhook.get_ai_insight") as mock_ai, \
          patch("app.notify.dispatch") as mock_dispatch:
         mock_ai.return_value = {"insight": "ok", "suggested_actions": []}
         mock_dispatch.return_value = []
@@ -278,7 +277,24 @@ def test_health_endpoint_returns_ok(client):
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.is_json
-    assert resp.get_json() == {"status": "ok"}
+    data = resp.get_json()
+    assert data["status"] == "ok"
+    assert "db" in data
+    assert "ai" in data
+    assert "workers" in data
+
+
+def test_health_endpoint_db_stats_present(client):
+    data = client.get("/health").get_json()
+    assert "total_alerts" in data["db"]
+    assert "notified_count" in data["db"]
+    assert "last_alert_ts" in data["db"]
+
+
+def test_health_endpoint_ai_rpm_present(client):
+    data = client.get("/health").get_json()
+    assert "limit" in data["ai"]
+    assert "used" in data["ai"]
 
 
 # ---------------------------------------------------------------------------

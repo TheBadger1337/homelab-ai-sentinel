@@ -343,6 +343,45 @@ def test_get_ai_insight_action_items_coerced_to_str(monkeypatch):
     assert result["suggested_actions"] == ["1", "2", "3"]
 
 
+# ---------------------------------------------------------------------------
+# _defang_urls
+# ---------------------------------------------------------------------------
+
+def test_defang_http():
+    assert gc._defang_urls("check http://example.com for details") == "check http[://]example.com for details"
+
+
+def test_defang_https():
+    assert gc._defang_urls("see https://docs.example.com") == "see https[://]docs.example.com"
+
+
+def test_defang_no_urls_unchanged():
+    text = "restart the nginx service and check logs"
+    assert gc._defang_urls(text) == text
+
+
+def test_defang_multiple_urls():
+    text = "see http://a.com and https://b.com"
+    result = gc._defang_urls(text)
+    assert "http[://]a.com" in result
+    assert "https[://]b.com" in result
+    assert "http://" not in result
+    assert "https://" not in result
+
+
+def test_defang_applied_to_insight(monkeypatch):
+    _setup_insight_env(monkeypatch)
+    with patch.object(gc._session, "post", return_value=_make_gemini_resp({
+        "insight": "Check https://example.com for details.",
+        "suggested_actions": ["Visit http://docs.example.com"],
+    })):
+        result = gc.get_ai_insight(_make_alert())
+    assert "https://" not in result["insight"]
+    assert "https[://]" in result["insight"]
+    assert "http://" not in result["suggested_actions"][0]
+    assert "http[://]" in result["suggested_actions"][0]
+
+
 def test_get_ai_insight_json_parse_error_returns_fallback(monkeypatch):
     _setup_insight_env(monkeypatch)
     mock_resp = MagicMock()

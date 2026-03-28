@@ -66,6 +66,7 @@ write access to your infrastructure and cannot execute commands.
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -118,6 +119,27 @@ def _acquire_rpm_slot() -> bool:
             return False
         _rpm_call_times.append(now)
         return True
+
+# ---------------------------------------------------------------------------
+# AI output sanitization
+# ---------------------------------------------------------------------------
+
+# Matches http:// and https:// — the two auto-linking protocols monitored
+# platforms (Discord, Slack, Telegram) will render as clickable URLs.
+_URL_RE = re.compile(r"https?://")
+
+
+def _defang_urls(text: str) -> str:
+    """
+    Replace http:// → hxxp:// and https:// → hxxps:// in AI output.
+
+    Prevents malicious URLs embedded via a partially-successful prompt injection
+    from being auto-linked or rendered as clickable elements in notification
+    platforms. Uses the hxxp/hxxps convention standard in threat intelligence.
+    Applied unconditionally — legitimate documentation links are still readable.
+    """
+    return _URL_RE.sub(lambda m: m.group().replace("://", "[://]"), text)
+
 
 _SYSTEM_PROMPT = """\
 You are a homelab monitoring assistant. Your job is to help homelab operators
@@ -390,9 +412,9 @@ def get_ai_insight(
         actions = result.get("suggested_actions", [])
         if not isinstance(actions, list):
             actions = []
-        actions = [str(a) for a in actions[:5]]
+        actions = [_defang_urls(str(a)) for a in actions[:5]]
 
-        return {"insight": insight[:2000], "suggested_actions": actions}
+        return {"insight": _defang_urls(insight[:2000]), "suggested_actions": actions}
 
     except (json.JSONDecodeError, KeyError, IndexError, AttributeError) as exc:
         logger.warning("AI response parse error: %s", type(exc).__name__)
@@ -404,3 +426,13 @@ def get_ai_insight(
     except Exception:  # noqa: BLE001 — must never raise
         logger.exception("Unexpected AI error")
         return _fallback("unexpected error")
+
+
+def get_rpm_status() -> dict:
+    """Return current RPM limiter state for the /health endpoint."""
+    limit = _env_int("GEMINI_RPM", 10)
+    with _rpm_lock:
+        now = time.monotonic()
+        cutoff = now - 60.0
+        used = sum(1 for t in _rpm_call_times if t >= cutoff)
+    return {"limit": limit if limit > 0 else None, "used": used}

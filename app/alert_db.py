@@ -60,7 +60,7 @@ def _get_conn() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create the alerts table and index if they don't exist. Called at app startup."""
+    """Create tables and indexes if they don't exist. Called at app startup."""
     try:
         conn = _get_conn()
         conn.execute("""
@@ -81,6 +81,13 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_service_ts ON alerts (service, ts)"
         )
+        # Webhook rate limiter — one row per request, pruned on each check.
+        # Shared across all Gunicorn workers via the same SQLite file.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS rate_log (
+                ts REAL NOT NULL
+            )
+        """)
         conn.commit()
         logger.info("Alert DB ready: %s", _db_path())
     except Exception as exc:
@@ -120,6 +127,46 @@ def log_alert(alert: NormalizedAlert, ai_result: dict | None, notified: bool) ->
         conn.commit()
     except Exception as exc:
         logger.warning("Failed to log alert to DB: %s", type(exc).__name__)
+
+
+def check_and_record_rate(limit: int, window: int) -> bool:
+    """
+    Return True if the webhook rate limit is exceeded (caller should return 429).
+
+    Prunes requests older than ``window`` seconds, counts the remainder, and
+    records this request if under the limit. Uses the SQLite WAL file shared
+    across all Gunicorn workers — replaces the per-worker in-memory deque.
+
+    Fails open: returns False on any DB error so a DB failure never blocks
+    legitimate requests. At homelab write volumes, the check+insert window is
+    negligibly small; a multi-worker race is acceptable for rate reduction.
+    """
+    try:
+        conn = _get_conn()
+        now = time.time()
+        cutoff = now - window
+        conn.execute("DELETE FROM rate_log WHERE ts < ?", (cutoff,))
+        count = conn.execute("SELECT COUNT(*) FROM rate_log").fetchone()[0]
+        if count < limit:
+            conn.execute("INSERT INTO rate_log (ts) VALUES (?)", (now,))
+        conn.commit()
+        return count >= limit
+    except Exception as exc:
+        logger.warning("Rate log check failed: %s", type(exc).__name__)
+        return False  # fail open — never block requests on DB error
+
+
+def get_db_stats() -> dict:
+    """Return summary stats for the /health endpoint. Returns None values on DB error."""
+    try:
+        conn = _get_conn()
+        total = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+        notified = conn.execute("SELECT COUNT(*) FROM alerts WHERE notified=1").fetchone()[0]
+        last_ts = conn.execute("SELECT MAX(ts) FROM alerts").fetchone()[0]
+        return {"total_alerts": total, "notified_count": notified, "last_alert_ts": last_ts}
+    except Exception as exc:
+        logger.warning("DB stats query failed: %s", type(exc).__name__)
+        return {"total_alerts": None, "notified_count": None, "last_alert_ts": None}
 
 
 def get_recent_alerts(service: str) -> list[dict]:

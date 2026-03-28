@@ -76,7 +76,7 @@ process is not running rather than overloaded.
 | 🤖 **AI Enrichment** | **Gemini 2.5 Flash** by default (free tier sufficient for homelab volumes) — swap to Claude, GPT-4o, Groq, or Ollama by changing one file |
 | 🔒 **Zero System Access** | Stateless and read-only. Sentinel receives JSON, calls an AI API, sends text. The AI cannot restart services, run commands, or read your filesystem |
 | 🧪 **Production-Hardened** | HMAC auth, deduplication, rate limiting, retry/backoff, graceful fallback, SSRF protection, secret redaction |
-| 💸 **Free to Run** | Defaults to Gemini 2.5 Flash (free tier: 10 RPM, 500 req/day) — swap to Claude, GPT-4o, Groq, Ollama, or any OpenAI-compatible endpoint by swapping `app/gemini_client.py` |
+| 💸 **Free to Run** | Defaults to Gemini 2.5 Flash (free tier: 10 RPM, 500 req/day) — swap to Claude, GPT-4o, Groq, or run fully local with Ollama or LM Studio — no data leaves your machine |
 
 ---
 

@@ -26,10 +26,21 @@ Monitoring Tool → [UNTRUSTED]
 POST /webhook (Flask, Gunicorn)
         ↓
 Authentication   ← WEBHOOK_SECRET HMAC check
+        |                └─ security_events: auth_failure
+        ↓
+Rate Limiting    ← SQLite-backed cross-worker sliding window
+        |                └─ security_events: rate_limited
         ↓
 Payload Parsing  ← size limit, type validation, schema check
         ↓
+Alert Parsing    ← source detection, field normalization, secret redaction
+        ↓
+Injection Scan   ← pattern detection (ignore-instructions, XML manipulation, persona-override, role-injection)
+        |                └─ security_events: injection_detected  [logs, does not block]
+        ↓
 Deduplication    ← SHA256 TTL cache
+        ↓
+Threshold Filter ← severity floors, quiet hours, metric floors
         ↓
 Prompt Builder   ← field caps, XML delimiters, details truncation
         ↓
@@ -37,12 +48,16 @@ AI Model         ← [SEMI-TRUSTED] Gemini / OpenAI / Anthropic / local
         ↓
 Output Validator ← type check, length cap, action count cap
         ↓
+URL Defanging    ← http(s):// → http(s)[://] in insight and actions
+        ↓
 Formatter        ← platform-specific escaping (HTML, Markdown)
         ↓
 Notification Platform  ← [PUBLIC-FACING] Discord / Slack / Telegram / etc.
         ↓
 Human operator   ← acts on recommendations
 ```
+
+Security events (auth failures, rate limit hits, injection detections) are written to the `security_events` SQLite table and surfaced in `/health` as per-type counts over the last 24 hours. This provides operator visibility into attack patterns without log grepping.
 
 **Trust boundaries:**
 | Stage | Trust Level | Why |
@@ -806,4 +821,48 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | `docker inspect` credential exposure | ❌ Out of scope | Restrict `docker` group membership; see 6D |
 | Docker group = effective root | ⚠️ Recommended | Use rootless Docker for service accounts; see 6E |
 | `WEBHOOK_RATE_LIMIT` global across workers | ✅ Implemented | `check_and_record_rate()` in `app/alert_db.py` — SQLite `rate_log` table shared by all Gunicorn workers |
+| Prompt injection pattern detection | ✅ Implemented | `scan_for_injection()` in `app/security.py` — detects ignore-instructions, XML manipulation, persona-override, role-injection; logs to `security_events` table |
+| Security event audit log | ✅ Implemented | `security_events` table in SQLite — auth failures, rate limit hits, injection detections; surfaced in `/health` |
+| Authenticated `/health` endpoint | ✅ Implemented | `app/webhook.py` — requires `X-Webhook-Token` if `WEBHOOK_SECRET` is set; prevents leaking operational stats |
 | Gemini free tier sends data to Google for model training | ⚠️ Recommended | Use paid tier or self-hosted LLM for sensitive data; see 5C |
+
+---
+
+## Security Architecture FAQ
+
+Answers to the questions an auditor, compliance team, or security-conscious operator would ask. Written to be answered without consulting the source code.
+
+**How does authentication work?**
+Single shared secret (`WEBHOOK_SECRET` env var). Every POST to `/webhook` must include a matching `X-Webhook-Token` header. Comparison uses `hmac.compare_digest` — constant-time, immune to timing oracle attacks. If `WEBHOOK_SECRET` is unset, the endpoint is open (suitable for localhost-only deployments). The same token gates `/health` when set. There are no sessions, no JWTs, no refresh tokens, no expiry.
+
+**How are secrets stored and accessed?**
+All secrets live in `.secrets.env` on the host, passed to the container via `env_file` in `docker-compose.yml`. They are never written to logs, never interpolated into error responses, never committed to source control (`.gitignore` covers `*.env` and all variants). The unhandled exception handler logs `type(exc).__name__` only — never `str(exc)`, which for HTTP errors would include the full request URL and any embedded API tokens.
+
+**What data is logged and where?**
+Alert payloads (after secret redaction) are written to a SQLite database at `/data/sentinel.db` in the container, persisted via a named Docker volume. Logged fields: source, service, status, severity, message, details (JSON), AI insight, suggested actions, notified flag. Security events (auth failures, rate limit hits, injection detections) are in a separate `security_events` table. Application logs go to stdout/stderr — captured by Docker with a 10 MB rotation cap.
+
+**What happens if the AI is compromised or injected?**
+The worst-case outcome is a misleading notification message in your private channels. Sentinel has no write access to your infrastructure and cannot execute commands. Structural defenses in layers: alert fields are capped at 500 chars before prompt insertion; data is wrapped in XML delimiters with explicit instructions that content inside is data, not commands; output is type-validated and length-capped; all URLs in AI output are defanged (`http[://]`) before dispatch. Injection attempts are detected and logged to `security_events` for operator visibility. See `app/gemini_client.py` and `app/security.py` for the full implementation.
+
+**What is the rate limiting strategy?**
+Two independent limiters. Webhook rate limiter (`WEBHOOK_RATE_LIMIT`): sliding-window counter backed by a SQLite `rate_log` table shared across all Gunicorn workers — rate is global, not per-worker. Disabled by default (set to 0) for LAN deployments. AI RPM limiter (`GEMINI_RPM`): in-memory deque per process, defaults to 10 to match the Gemini free tier. Both fail open on DB error — a DB failure never blocks legitimate requests.
+
+**What is the blast radius of a successful attack?**
+An attacker who bypasses all mitigations can: cause a misleading notification to appear in your configured channels. They cannot: access your infrastructure, execute commands, read your filesystem, exfiltrate your secrets, or cause Sentinel to take any action beyond sending text to your pre-configured notification endpoints. The system is stateless and read-only with respect to your infrastructure.
+
+**How do you know if someone is probing the system?**
+The `/health` endpoint (authenticated if `WEBHOOK_SECRET` is set) returns a `security` block with event counts over the last 24 hours:
+```json
+"security": {
+  "auth_failure": 4,
+  "rate_limited": 1,
+  "injection_detected": 2
+}
+```
+A rising `injection_detected` count means something is testing the injection surface. A rising `auth_failure` count means something is guessing the webhook token. Raw events are queryable directly from `security_events` in the SQLite DB.
+
+**What encryption is in use?**
+None built into Sentinel — by design. Alert data in transit is plaintext HTTP unless you terminate TLS at a reverse proxy (Nginx, Caddy) in front of Sentinel. Data at rest in SQLite is unencrypted. For sensitive alert content, use a local LLM (Ollama, LM Studio) to keep data entirely on-host, and place the container behind a reverse proxy with TLS.
+
+**What is the data retention policy?**
+Alerts are retained indefinitely in SQLite until manually pruned. There is no automatic expiry. The named Docker volume (`sentinel-data`) persists across container restarts. To clear history: `docker run --rm -v sentinel-data:/data alpine rm /data/sentinel.db` and restart Sentinel.

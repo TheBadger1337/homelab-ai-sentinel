@@ -75,7 +75,7 @@ process is not running rather than overloaded.
 | 🔍 **11 Alert Source Parsers** | Uptime Kuma · Grafana · Prometheus · Healthchecks.io · Netdata · Zabbix · Checkmk · WUD · Docker Events · Glances · Generic JSON — auto-detected, zero config |
 | 🤖 **AI Enrichment** | **Gemini 2.5 Flash** by default (free tier sufficient for homelab volumes) — swap to Claude, GPT-4o, Groq, or Ollama by changing one file |
 | 🔒 **Zero System Access** | Stateless and read-only. Sentinel receives JSON, calls an AI API, sends text. The AI cannot restart services, run commands, or read your filesystem |
-| 🧪 **Production-Hardened** | HMAC auth, deduplication, rate limiting, retry/backoff, graceful fallback, SSRF protection, secret redaction |
+| 🧪 **Production-Hardened** | HMAC auth · deduplication · global rate limiting · retry/backoff · graceful fallback · SSRF protection · secret redaction · prompt injection detection · security audit log |
 | 💸 **Free to Run** | Defaults to Gemini 2.5 Flash (free tier: 10 RPM, 500 req/day) — swap to Claude, GPT-4o, Groq, or run fully local with Ollama or LM Studio — no data leaves your machine |
 
 ---
@@ -154,7 +154,13 @@ docker compose up -d
 
 ```bash
 curl -s http://localhost:5000/health
-# {"status": "ok"}
+# {
+#   "status": "ok",
+#   "db": {"total_alerts": 0, "notified_count": 0, "last_alert_ts": null},
+#   "ai": {"limit": 10, "used": 0},
+#   "security": {},
+#   "workers": "1"
+# }
 
 curl -s -X POST http://localhost:5000/webhook \
   -H "Content-Type: application/json" \
@@ -316,13 +322,14 @@ Full drop-in implementations for every provider above: see **[Premium Guides](#p
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for the full threat model, secrets handling, Docker isolation, and network security.
+See [SECURITY.md](SECURITY.md) for the full threat model, data flow, secrets handling, Docker isolation, and a Security Architecture FAQ that answers auditor questions without reading the source.
 
 **Pre-deployment checklist:**
 - `.secrets.env` is gitignored — verify with `git check-ignore -v .secrets.env`
-- Set `WEBHOOK_SECRET` for any deployment reachable outside localhost
+- Set `WEBHOOK_SECRET` for any deployment reachable outside localhost — this also gates `/health`
 - Alert payloads are sent to cloud AI — avoid including passwords, PII, or regulated data in monitored service names or messages
 - Never set `FLASK_DEBUG=1` in production
+- Monitor `/health` → `security` for rising `auth_failure` or `injection_detected` counts
 
 ---
 
@@ -334,7 +341,7 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Covers all 11 parsers, all 10 notification clients, HMAC auth, deduplication, rate limiting, retry/backoff, SSRF protection, secret redaction, and Flask error handlers. No network access required.
+Covers all 11 parsers, all 10 notification clients, HMAC auth, deduplication, global rate limiting, retry/backoff, SSRF protection, secret redaction, severity/metric/quiet-hour thresholds, SQLite alert log, prompt injection detection, security audit events, and Flask error handlers. No network access required.
 
 ---
 
@@ -396,14 +403,29 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - O(k) dedup pruning · dedup memory cap · deque-based rate limiter
 - Non-root container user · pip hash pinning · unhandled exception URL-safe logging
 - Per-service severity thresholds (`MIN_SEVERITY`, `THRESHOLD_<SERVICE>`)
-- Metric-based thresholds (`METRIC_THRESHOLD_<KEY>`) — suppress below a configured % floor; extracts from structured details or message string
-- Quiet hours (`QUIET_HOURS`, `QUIET_HOURS_MIN_SEVERITY`) — suppress non-critical alerts during configured time windows
+- Metric-based thresholds (`METRIC_THRESHOLD_<KEY>`) — suppress below a configured % floor
+- Quiet hours (`QUIET_HOURS`, `QUIET_HOURS_MIN_SEVERITY`)
 - Persistent SQLite alert log (WAL mode, named Docker volume)
 - Alert history injected into AI prompt — pattern detection across recurring failures
 
+**v1.2 — complete:**
+- URL defanging in AI output — `http(s)[://]` prevents auto-linking from injection attempts
+- Global webhook rate limiter — SQLite-backed, shared across all Gunicorn workers
+- Prompt injection detection — pattern scan on alert fields before the AI call; logs to DB
+- Security event audit log — `security_events` table for auth failures, rate limit hits, detections
+- `/health` enrichment — DB stats, AI RPM state, security event counts (24h), worker count
+- `/health` authentication — gated by `WEBHOOK_SECRET` when set
+- Security Architecture FAQ in SECURITY.md — walkable answers to auditor questions
+
 **Planned:**
+- Homelab Pulse — pre-computed frequency stats injected before the AI call
+- Prompt context injection (`SENTINEL_CONTEXT`) — describe your infrastructure once, used in every AI prompt
+- Runbook injection — map service names to local markdown files for specific remediation steps
+- Severity escalation — N warnings in a time window → auto-escalate to critical
+- Per-service notification cooldown — suppress repeat notifications beyond dedup TTL
+- Watchdog heartbeat — periodic POST to Healthchecks.io/Uptime Kuma; alerts if Sentinel hangs
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
-- Web UI — recent alerts dashboard
+- Web UI — recent alerts dashboard (builds on existing SQLite + WAL foundation)
 - Teams, Pushover, PagerDuty notification targets *(lower priority)*
 
 ---

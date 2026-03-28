@@ -61,7 +61,9 @@ def create_app() -> Flask:
 
     @app.errorhandler(Exception)
     def unhandled_exception(exc: Exception) -> tuple:
-        logger.exception("Unhandled exception: %s", exc)
+        # Log the exception type only — not str(exc), which for requests.HTTPError
+        # includes the full request URL (may contain API tokens in the path).
+        logger.exception("Unhandled exception: %s", type(exc).__name__)
         return jsonify({"error": "internal server error"}), 500
 
     return app

@@ -75,3 +75,36 @@ def test_validate_url_rejects_loopback_ip():
 
 def test_validate_url_rejects_link_local():
     assert _validate_url("http://169.254.169.254/latest/meta-data/", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_ipv6_loopback():
+    """::1 in bracket notation must be blocked."""
+    assert _validate_url("http://[::1]:8080", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_ipv4_mapped_loopback():
+    """IPv4-mapped IPv6 loopback (::ffff:127.0.0.1) must be blocked."""
+    assert _validate_url("http://[::ffff:127.0.0.1]", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_ipv6_link_local():
+    """fe80::/10 link-local IPv6 must be blocked."""
+    assert _validate_url("http://[fe80::1]", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_unspecified():
+    """0.0.0.0 (unspecified) must be blocked."""
+    assert _validate_url("http://0.0.0.0:5000", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_empty_hostname():
+    """URL with no hostname must be blocked."""
+    assert _validate_url("http:///path", "TEST_VAR") is False
+
+
+def test_validate_url_accepts_rfc1918_10_block():
+    assert _validate_url("http://10.0.0.1:8080", "TEST_VAR") is True
+
+
+def test_validate_url_accepts_rfc1918_172_block():
+    assert _validate_url("http://172.16.0.1:8080", "TEST_VAR") is True

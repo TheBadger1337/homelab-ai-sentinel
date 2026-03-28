@@ -24,6 +24,7 @@ instance="host:9100". The Alertmanager parser captures these automatically
 — node_exporter details land in alert.details["job"] and alert.details["instance"].
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -368,6 +369,49 @@ _SENSITIVE_KEYS = {
 # field (e.g. bearer_token, oauth_token, client_secret, app_secret).
 _SENSITIVE_SUBSTRINGS = ("token", "secret", "password", "passwd", "credential")
 
+# ---------------------------------------------------------------------------
+# Pattern-based value redaction
+# ---------------------------------------------------------------------------
+# Applied to string values in the generic parser — the widest injection surface,
+# where raw log content from monitoring tools may contain embedded credentials.
+# Named parsers (Uptime Kuma, Grafana, etc.) use controlled field sets and are
+# not subject to this redaction.
+
+# JWT: header.payload.signature — base64url, always starts with eyJ ({"  in base64)
+_RE_JWT = re.compile(
+    r'eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+){2}'
+)
+
+# Inline credentials: key=value or key: value where the key names a credential field.
+# Captures the key name in group 1 so the replacement preserves it as key=[REDACTED].
+_RE_INLINE_CRED = re.compile(
+    r'(?i)((?:api[_-]?key|token|secret|password|passwd|auth(?:orization)?))'
+    r'\s*[:=]\s*\S+'
+)
+
+# Email addresses — may appear in auth failure messages, alert annotations, etc.
+_RE_EMAIL = re.compile(
+    r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b'
+)
+
+
+def _redact_str(value: str) -> str:
+    """
+    Redact credential and PII patterns from a string value.
+
+    Applied to the message field and string values in the details dict for
+    generic-format payloads before they are forwarded to the AI or notifications.
+
+    Redacts (in order):
+    1. JWT tokens (eyJ... format) — replaced with [JWT]
+    2. Inline key=value credential patterns — replaced with key=[REDACTED]
+    3. Email addresses — replaced with [EMAIL]
+    """
+    value = _RE_JWT.sub("[JWT]", value)
+    value = _RE_INLINE_CRED.sub(r"\1=[REDACTED]", value)
+    value = _RE_EMAIL.sub("[EMAIL]", value)
+    return value
+
 
 def _parse_generic(data: dict[str, Any]) -> NormalizedAlert:
     # Best-effort mapping for arbitrary JSON payloads
@@ -396,23 +440,26 @@ def _parse_generic(data: dict[str, Any]) -> NormalizedAlert:
         or "Unknown Service"
     )
 
-    message = (
+    message = _redact_str(str(
         data.get("message")
         or data.get("msg")
         or data.get("description")
         or data.get("text")
         or f"{service_name} alert: {status}"
-    )
+    ))
 
     # Store everything else as extra context for the AI.
     # Strip keys that commonly hold credentials — the generic parser is the
     # widest injection surface and should never forward secrets to the AI prompt.
     # Exact-match check covers short names (key, auth, token).
     # Substring check covers compound names (bearer_token, client_secret, etc.).
+    # Pattern redaction is applied to remaining string values to catch embedded
+    # credentials (JWTs, key=value pairs, email addresses) in arbitrary fields.
     excluded = {"status", "state", "alertstate", "service", "name",
                 "host", "source", "message", "msg", "description", "text"}
     details = {
-        k: v for k, v in data.items()
+        k: _redact_str(v) if isinstance(v, str) else v
+        for k, v in data.items()
         if k not in excluded
         and k.lower() not in _SENSITIVE_KEYS
         and not any(s in k.lower() for s in _SENSITIVE_SUBSTRINGS)

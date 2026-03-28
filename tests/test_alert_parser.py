@@ -232,6 +232,68 @@ def test_generic_sensitive_keys_substring_match():
     assert alert.details.get("region") == "us-east-1"
 
 
+def test_generic_value_redaction_jwt():
+    """JWT tokens in message or detail values must not survive redaction."""
+    jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+    # Bare JWT — not preceded by a credential key name
+    alert_bare = parse_alert({
+        "service": "myapp", "status": "down",
+        "message": f"Error payload was {jwt} in body",
+        "raw_token": jwt,
+    })
+    assert jwt not in alert_bare.message
+    assert "[JWT]" in alert_bare.message
+    # raw_token key is stripped by _SENSITIVE_KEYS before redaction applies,
+    # so it won't appear in details at all
+    assert "raw_token" not in alert_bare.details
+
+    # JWT after a credential key — inline cred pattern fires, JWT still gone
+    alert_keyed = parse_alert({
+        "service": "myapp", "status": "down",
+        "message": f"Auth failed for token: {jwt}",
+    })
+    assert jwt not in alert_keyed.message
+
+
+def test_generic_value_redaction_inline_cred():
+    """Inline key=value credential patterns must be redacted in message and details."""
+    alert = parse_alert({
+        "service": "myapp", "status": "down",
+        "message": "Connecting with api_key=AKIAIOSFODNN7EXAMPLE failed",
+        "extra_info": "retry with password=hunter2 succeeded",
+    })
+    assert "AKIAIOSFODNN7EXAMPLE" not in alert.message
+    assert "[REDACTED]" in alert.message
+    assert "hunter2" not in alert.details.get("extra_info", "")
+    assert "[REDACTED]" in alert.details.get("extra_info", "")
+
+
+def test_generic_value_redaction_email():
+    """Email addresses in message or detail values must be replaced with [EMAIL]."""
+    alert = parse_alert({
+        "service": "myapp", "status": "down",
+        "message": "Auth failed for user: john@example.com",
+        "contact": "alert owner: ops@company.internal",
+    })
+    assert "john@example.com" not in alert.message
+    assert "[EMAIL]" in alert.message
+    assert "ops@company.internal" not in alert.details.get("contact", "")
+    assert "[EMAIL]" in alert.details.get("contact", "")
+
+
+def test_generic_value_redaction_preserves_non_sensitive():
+    """Non-sensitive values must pass through redaction unchanged."""
+    alert = parse_alert({
+        "service": "myapp", "status": "down",
+        "message": "Disk usage at 95% on /var/lib",
+        "mount_point": "/var/lib/docker",
+        "host_ip": "192.168.1.50",
+    })
+    assert "95%" in alert.message
+    assert alert.details.get("mount_point") == "/var/lib/docker"
+    assert alert.details.get("host_ip") == "192.168.1.50"
+
+
 def test_generic_empty_payload():
     alert = parse_alert({})
     assert alert.source == "generic"

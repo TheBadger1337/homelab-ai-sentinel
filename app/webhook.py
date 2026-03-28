@@ -104,11 +104,23 @@ def _is_duplicate(alert: NormalizedAlert) -> bool:
         last_seen = _dedup_cache.get(key)
         if last_seen is not None and (now - last_seen) < ttl:
             return True
+
+        # Delete-then-reinsert maintains insertion-order = time-order.
+        # Updating an existing key in-place (dict[key] = val) preserves the
+        # original insertion position, which would break the O(k) pruning walk.
+        _dedup_cache.pop(key, None)
         _dedup_cache[key] = now
-        # Prune entries older than TTL to prevent unbounded growth
-        expired = [k for k, v in _dedup_cache.items() if (now - v) >= ttl]
-        for k in expired:
-            del _dedup_cache[k]
+
+        # Prune expired entries from the front — O(k) where k = expired count.
+        # Valid because dict insertion order == time order after delete+reinsert.
+        # Stop at the first non-expired entry — everything after it is newer.
+        while _dedup_cache:
+            oldest_key, oldest_time = next(iter(_dedup_cache.items()))
+            if now - oldest_time >= ttl:
+                del _dedup_cache[oldest_key]
+            else:
+                break
+
         # Hard cap: if still over limit after TTL pruning (unique alert flood),
         # evict the oldest entry. Trades dedup accuracy for bounded memory.
         if len(_dedup_cache) > _DEDUP_MAX_SIZE:

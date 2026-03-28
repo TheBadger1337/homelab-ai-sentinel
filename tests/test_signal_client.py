@@ -96,7 +96,7 @@ def test_build_message_has_footer():
 # ---------------------------------------------------------------------------
 
 def _signal_env(monkeypatch):
-    monkeypatch.setenv("SIGNAL_API_URL", "http://localhost:8080")
+    monkeypatch.setenv("SIGNAL_API_URL", "http://signal-cli-rest-api:8080")
     monkeypatch.setenv("SIGNAL_SENDER", "+15551234567")
     monkeypatch.setenv("SIGNAL_RECIPIENT", "+15559876543")
 
@@ -111,7 +111,7 @@ def test_post_alert_skips_when_no_api_url(monkeypatch):
 
 
 def test_post_alert_skips_when_no_sender(monkeypatch):
-    monkeypatch.setenv("SIGNAL_API_URL", "http://localhost:8080")
+    monkeypatch.setenv("SIGNAL_API_URL", "http://signal-cli-rest-api:8080")
     monkeypatch.delenv("SIGNAL_SENDER", raising=False)
     monkeypatch.setenv("SIGNAL_RECIPIENT", "+15559876543")
     with patch("app.signal_client.requests.post") as mock_post:
@@ -120,7 +120,7 @@ def test_post_alert_skips_when_no_sender(monkeypatch):
 
 
 def test_post_alert_skips_when_no_recipient(monkeypatch):
-    monkeypatch.setenv("SIGNAL_API_URL", "http://localhost:8080")
+    monkeypatch.setenv("SIGNAL_API_URL", "http://signal-cli-rest-api:8080")
     monkeypatch.setenv("SIGNAL_SENDER", "+15551234567")
     monkeypatch.delenv("SIGNAL_RECIPIENT", raising=False)
     with patch("app.signal_client.requests.post") as mock_post:
@@ -145,7 +145,7 @@ def test_post_alert_url_contains_v2_send(monkeypatch):
         post_alert(_make_alert(), _AI)
     url = mock_post.call_args[0][0]
     assert "v2/send" in url
-    assert "localhost:8080" in url
+    assert "signal-cli-rest-api:8080" in url
 
 
 def test_post_alert_payload_structure(monkeypatch):

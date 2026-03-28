@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/python-3.12-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-355%20passing-22c55e?style=flat-square)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-361%20passing-22c55e?style=flat-square)](#running-tests)
 [![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-f97316?style=flat-square)](https://aistudio.google.com)
 
 </div>
@@ -335,9 +335,9 @@ pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-**355 tests** — all 11 parsers, all 10 notification clients, parallel dispatch, auth, deduplication, rate limiting, retry/backoff, Flask error handlers. No network access required.
+**361 tests** — all 11 parsers, all 10 notification clients, parallel dispatch, auth, deduplication, rate limiting, retry/backoff, Flask error handlers. No network access required.
 
-Expected: `355 passed`
+Expected: `361 passed`
 
 ---
 

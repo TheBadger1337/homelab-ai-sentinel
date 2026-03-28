@@ -29,16 +29,37 @@ def _env_float(key: str, default: float) -> float:
 
 def _validate_url(url: str, env_var: str) -> bool:
     """
-    Return True if the URL uses http or https.
-    Rejects other schemes (file://, ftp://, etc.) to prevent SSRF via
-    misconfigured or attacker-controlled URL env vars.
-    Logs a warning and returns False on rejection.
+    Return True if the URL is safe to use as an outbound HTTP target.
+
+    Rejects:
+    - Non-http/https schemes (file://, ftp://, etc.) — SSRF via scheme abuse
+    - Loopback addresses (127.x.x.x, localhost, ::1) — avoids proxying to
+      the container itself or the Docker host loopback interface
+    - Link-local / cloud metadata addresses (169.254.x.x) — blocks AWS/GCP/Azure
+      instance metadata endpoint probing
+
+    RFC1918 ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x) are intentionally
+    allowed — all Sentinel notification backends run on the internal network.
     """
-    scheme = urlparse(url).scheme
+    parsed = urlparse(url)
+    scheme = parsed.scheme
     if scheme not in ("http", "https"):
         logger.warning(
             "%s: URL scheme must be http or https (got %r) — skipping notification",
             env_var, scheme,
         )
         return False
+
+    hostname = (parsed.hostname or "").lower()
+    if (
+        hostname in ("localhost", "127.0.0.1", "::1")
+        or hostname.startswith("127.")
+        or hostname.startswith("169.254.")
+    ):
+        logger.warning(
+            "%s: URL targets a restricted address (%r) — skipping notification",
+            env_var, hostname,
+        )
+        return False
+
     return True

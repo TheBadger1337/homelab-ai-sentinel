@@ -41,11 +41,16 @@ def test_env_float_returns_default_when_unset(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_validate_url_accepts_http():
-    assert _validate_url("http://localhost:8080", "TEST_VAR") is True
+    assert _validate_url("http://gotify.home.internal:80", "TEST_VAR") is True
 
 
 def test_validate_url_accepts_https():
     assert _validate_url("https://example.com/path", "TEST_VAR") is True
+
+
+def test_validate_url_accepts_rfc1918():
+    # Internal homelab IPs must remain reachable — all notification backends live here
+    assert _validate_url("http://192.168.1.50:8080", "TEST_VAR") is True
 
 
 def test_validate_url_rejects_file_scheme():
@@ -57,4 +62,16 @@ def test_validate_url_rejects_ftp_scheme():
 
 
 def test_validate_url_rejects_no_scheme():
-    assert _validate_url("localhost:8080", "TEST_VAR") is False
+    assert _validate_url("gotify.home.internal:8080", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_localhost():
+    assert _validate_url("http://localhost:8080", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_loopback_ip():
+    assert _validate_url("http://127.0.0.1:9000", "TEST_VAR") is False
+
+
+def test_validate_url_rejects_link_local():
+    assert _validate_url("http://169.254.169.254/latest/meta-data/", "TEST_VAR") is False

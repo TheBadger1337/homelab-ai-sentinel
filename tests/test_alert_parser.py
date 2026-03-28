@@ -195,6 +195,27 @@ def test_generic_extra_fields_in_details():
     assert "message" not in alert.details
 
 
+def test_generic_sensitive_keys_stripped_from_details():
+    alert = parse_alert({
+        "service": "myapp", "status": "down",
+        "message": "crashed", "token": "secret123", "api_key": "abc",
+        "password": "hunter2", "region": "us-east-1",
+    })
+    assert "token" not in alert.details
+    assert "api_key" not in alert.details
+    assert "password" not in alert.details
+    assert alert.details.get("region") == "us-east-1"
+
+
+def test_generic_sensitive_keys_case_insensitive():
+    alert = parse_alert({
+        "service": "myapp", "status": "down",
+        "TOKEN": "secret", "Authorization": "Bearer xyz",
+    })
+    assert "TOKEN" not in alert.details
+    assert "Authorization" not in alert.details
+
+
 def test_generic_empty_payload():
     alert = parse_alert({})
     assert alert.source == "generic"

@@ -393,10 +393,20 @@ def _parse_generic(data: dict[str, Any]) -> NormalizedAlert:
         or f"{service_name} alert: {status}"
     )
 
-    # Store everything else as extra context for the AI
+    # Store everything else as extra context for the AI.
+    # Strip keys that commonly hold credentials — the generic parser is the
+    # widest injection surface and should never forward secrets to the AI prompt.
+    _SENSITIVE_KEYS = {
+        "password", "passwd", "token", "secret", "key", "api_key",
+        "auth", "authorization", "access_token", "refresh_token",
+        "private_key", "credential", "credentials",
+    }
     excluded = {"status", "state", "alertstate", "service", "name",
                 "host", "source", "message", "msg", "description", "text"}
-    details = {k: v for k, v in data.items() if k not in excluded}
+    details = {
+        k: v for k, v in data.items()
+        if k not in excluded and k.lower() not in _SENSITIVE_KEYS
+    }
 
     return NormalizedAlert(
         source="generic",

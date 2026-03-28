@@ -307,8 +307,8 @@ The AI integration is entirely contained in `app/gemini_client.py`. Change that 
 | **Claude (Anthropic)** | ❌ | `claude-haiku-4-5` for speed/cost |
 | **GPT-4o / GPT-4o-mini** | ❌ | `gpt-4o-mini` recommended |
 | **Groq** | ✅ | Hosted Llama 3, ~500ms latency |
-| **Ollama** | N/A | Local inference, no data leaves your machine |
-| **LM Studio / LocalAI** | N/A | OpenAI-compatible at `localhost:1234/v1` |
+| **Ollama** | ✅ | Local inference, no data leaves your machine |
+| **LM Studio / LocalAI** | ✅ | OpenAI-compatible at `localhost:1234/v1` |
 
 Full drop-in implementations for every provider above: see **[Premium Guides](#premium-guides)**.
 
@@ -388,16 +388,20 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 
 **v1.0 — complete:**
 - 11 alert source parsers · 10 notification platforms · parallel dispatch via `ThreadPoolExecutor`
-- Auth (`WEBHOOK_SECRET`) · deduplication · webhook rate limiter · AI RPM limiter
+- HMAC auth · deduplication · webhook rate limiter · AI RPM limiter
 - AI retry with exponential backoff · gthread Gunicorn workers
-- SSRF protection · secret redaction · HMAC auth · dedup cache · rate limiting
+
+**v1.1 — complete:**
+- SSRF protection · pattern-based secret redaction · IPv6 loopback hardening
+- O(k) dedup pruning · dedup memory cap · deque-based rate limiter
+- Non-root container user · pip hash pinning · unhandled exception URL-safe logging
 
 **Planned:**
-- Teams, Pushover, PagerDuty notification targets
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
 - Per-service severity thresholds — suppress info-level alerts from noisy monitors
 - Persistent alert log (SQLite)
 - Web UI — recent alerts dashboard
+- Teams, Pushover, PagerDuty notification targets *(lower priority)*
 
 ---
 

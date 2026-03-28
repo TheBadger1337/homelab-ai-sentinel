@@ -281,6 +281,7 @@ def test_health_endpoint_returns_ok(client):
     assert data["status"] == "ok"
     assert "db" in data
     assert "ai" in data
+    assert "security" in data
     assert "workers" in data
 
 
@@ -295,6 +296,32 @@ def test_health_endpoint_ai_rpm_present(client):
     data = client.get("/health").get_json()
     assert "limit" in data["ai"]
     assert "used" in data["ai"]
+
+
+def test_health_requires_auth_when_secret_set(client, monkeypatch):
+    monkeypatch.setenv("WEBHOOK_SECRET", "secret123")
+    resp = client.get("/health")
+    assert resp.status_code == 401
+    assert resp.get_json()["error"] == "unauthorized"
+
+
+def test_health_rejects_wrong_token(client, monkeypatch):
+    monkeypatch.setenv("WEBHOOK_SECRET", "secret123")
+    resp = client.get("/health", headers={"X-Webhook-Token": "wrong"})
+    assert resp.status_code == 401
+
+
+def test_health_accepts_correct_token(client, monkeypatch):
+    monkeypatch.setenv("WEBHOOK_SECRET", "secret123")
+    resp = client.get("/health", headers={"X-Webhook-Token": "secret123"})
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "ok"
+
+
+def test_health_open_when_no_secret(client, monkeypatch):
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    resp = client.get("/health")
+    assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------

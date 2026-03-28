@@ -50,10 +50,11 @@ from threading import Lock
 
 from flask import Blueprint, jsonify, request
 
-from .alert_db import check_and_record_rate, get_db_stats, get_recent_alerts, log_alert
+from .alert_db import check_and_record_rate, get_db_stats, get_recent_alerts, log_alert, log_security_event, get_security_summary
 from .alert_parser import NormalizedAlert, parse_alert
 from .gemini_client import get_ai_insight, get_rpm_status
 from . import notify
+from .security import scan_for_injection
 from .thresholds import should_suppress
 from .utils import _env_int
 
@@ -167,12 +168,23 @@ def _check_secret() -> bool:
 
 @webhook_bp.route("/health", methods=["GET"])
 def health():
+    # Optional auth — if WEBHOOK_SECRET is set, /health requires the same token.
+    # Prevents leaking alert volume, last-seen timestamps, and RPM state to
+    # unauthenticated callers on the network.
+    secret = os.environ.get("WEBHOOK_SECRET", "")
+    if secret:
+        provided = request.headers.get("X-Webhook-Token", "")
+        if not hmac.compare_digest(provided, secret):
+            return jsonify({"error": "unauthorized"}), 401
+
     db = get_db_stats()
     rpm = get_rpm_status()
+    security = get_security_summary()
     return jsonify({
         "status": "ok",
         "db": db,
         "ai": rpm,
+        "security": security,
         "workers": os.environ.get("WEB_CONCURRENCY", "1"),
     })
 
@@ -181,11 +193,13 @@ def health():
 def webhook():
     # 1. Authenticate
     if not _check_secret():
+        log_security_event("auth_failure", f"ip={request.remote_addr}")
         return jsonify({"error": "unauthorized"}), 401
 
     # 2. Rate limit — checked after auth so only authenticated callers consume quota
     if _check_rate_limit():
         logger.warning("Webhook rate limit exceeded (WEBHOOK_RATE_LIMIT=%s)", os.environ.get("WEBHOOK_RATE_LIMIT", "0"))
+        log_security_event("rate_limited", f"ip={request.remote_addr}")
         return jsonify({"error": "too many requests"}), 429
 
     # 3. Validate Content-Type
@@ -213,7 +227,21 @@ def webhook():
         alert.severity, alert.message, alert.details,
     )
 
-    # 6. Deduplication — suppress repeat alerts within the TTL window to protect
+    # 6. Injection detection — scan fields for known prompt injection patterns.
+    #    Does not block processing; detection is informational for operator visibility.
+    #    Structural mitigations (XML delimiters, field caps) already limit blast radius.
+    injections = scan_for_injection(alert)
+    for pattern_name in injections:
+        logger.warning(
+            "Possible prompt injection detected: service=%r pattern=%r",
+            alert.service_name, pattern_name,
+        )
+        log_security_event(
+            "injection_detected",
+            f"service={alert.service_name} pattern={pattern_name}",
+        )
+
+    # 7. Deduplication — suppress repeat alerts within the TTL window to protect
     #    AI API token budget from flapping services and flood attacks.
     if _is_duplicate(alert):
         logger.info(

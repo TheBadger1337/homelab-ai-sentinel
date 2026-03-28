@@ -310,3 +310,62 @@ def test_get_db_stats_fails_gracefully(monkeypatch):
     monkeypatch.setattr(adb, "_get_conn", lambda: (_ for _ in ()).throw(Exception("db error")))
     stats = adb.get_db_stats()
     assert stats["total_alerts"] is None
+
+
+# ---------------------------------------------------------------------------
+# log_security_event / get_security_summary
+# ---------------------------------------------------------------------------
+
+def test_log_security_event_stores_record():
+    adb.log_security_event("auth_failure", "ip=1.2.3.4")
+    conn = adb._get_conn()
+    row = conn.execute("SELECT event_type, detail FROM security_events").fetchone()
+    assert row["event_type"] == "auth_failure"
+    assert row["detail"] == "ip=1.2.3.4"
+
+
+def test_log_security_event_no_detail():
+    adb.log_security_event("rate_limited")
+    conn = adb._get_conn()
+    row = conn.execute("SELECT detail FROM security_events").fetchone()
+    assert row["detail"] == ""
+
+
+def test_get_security_summary_counts_by_type():
+    adb.log_security_event("auth_failure")
+    adb.log_security_event("auth_failure")
+    adb.log_security_event("rate_limited")
+
+    summary = adb.get_security_summary()
+    assert summary["auth_failure"] == 2
+    assert summary["rate_limited"] == 1
+
+
+def test_get_security_summary_respects_time_window():
+    import time as _time
+    # Insert an old event directly
+    conn = adb._get_conn()
+    conn.execute(
+        "INSERT INTO security_events (ts, event_type, detail) VALUES (?, 'old_event', '')",
+        (_time.time() - 90000,),  # 25 hours ago — outside default 24h window
+    )
+    conn.commit()
+
+    adb.log_security_event("recent_event")
+    summary = adb.get_security_summary(hours=24)
+    assert "recent_event" in summary
+    assert "old_event" not in summary
+
+
+def test_get_security_summary_empty_returns_empty_dict():
+    assert adb.get_security_summary() == {}
+
+
+def test_log_security_event_fails_gracefully(monkeypatch):
+    monkeypatch.setattr(adb, "_get_conn", lambda: (_ for _ in ()).throw(Exception("db error")))
+    adb.log_security_event("auth_failure")  # must not raise
+
+
+def test_get_security_summary_fails_gracefully(monkeypatch):
+    monkeypatch.setattr(adb, "_get_conn", lambda: (_ for _ in ()).throw(Exception("db error")))
+    assert adb.get_security_summary() == {}

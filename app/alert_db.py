@@ -88,6 +88,19 @@ def init_db() -> None:
                 ts REAL NOT NULL
             )
         """)
+        # Security audit log — auth failures, rate limit hits, injection detections.
+        # Append-only; surfaced in /health for operator visibility.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS security_events (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts         REAL    NOT NULL,
+                event_type TEXT    NOT NULL,
+                detail     TEXT
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_security_ts ON security_events (event_type, ts)"
+        )
         conn.commit()
         logger.info("Alert DB ready: %s", _db_path())
     except Exception as exc:
@@ -154,6 +167,46 @@ def check_and_record_rate(limit: int, window: int) -> bool:
     except Exception as exc:
         logger.warning("Rate log check failed: %s", type(exc).__name__)
         return False  # fail open — never block requests on DB error
+
+
+def log_security_event(event_type: str, detail: str = "") -> None:
+    """
+    Append a security event record (auth failure, rate limit hit, injection detected).
+    Fails silently — security logging must never interrupt request processing.
+    """
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "INSERT INTO security_events (ts, event_type, detail) VALUES (?, ?, ?)",
+            (time.time(), event_type, detail[:500]),  # cap detail length
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("Failed to log security event: %s", type(exc).__name__)
+
+
+def get_security_summary(hours: int = 24) -> dict[str, int]:
+    """
+    Return counts of each security event type in the last N hours.
+    Used by /health to surface attack patterns without raw log grepping.
+    Returns an empty dict on DB error.
+    """
+    try:
+        conn = _get_conn()
+        cutoff = time.time() - hours * 3600
+        rows = conn.execute(
+            """
+            SELECT event_type, COUNT(*) as count
+            FROM security_events
+            WHERE ts >= ?
+            GROUP BY event_type
+            """,
+            (cutoff,),
+        ).fetchall()
+        return {r["event_type"]: r["count"] for r in rows}
+    except Exception as exc:
+        logger.warning("Security summary query failed: %s", type(exc).__name__)
+        return {}
 
 
 def get_db_stats() -> dict:

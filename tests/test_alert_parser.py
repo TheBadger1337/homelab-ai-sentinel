@@ -216,6 +216,22 @@ def test_generic_sensitive_keys_case_insensitive():
     assert "Authorization" not in alert.details
 
 
+def test_generic_sensitive_keys_substring_match():
+    """Compound credential keys like bearer_token must be stripped via substring match."""
+    alert = parse_alert({
+        "service": "myapp", "status": "down",
+        "bearer_token": "xyz", "client_secret": "abc",
+        "oauth_token": "tok", "app_secret": "shhh",
+        "user_password": "hunter2", "region": "us-east-1",
+    })
+    assert "bearer_token" not in alert.details
+    assert "client_secret" not in alert.details
+    assert "oauth_token" not in alert.details
+    assert "app_secret" not in alert.details
+    assert "user_password" not in alert.details
+    assert alert.details.get("region") == "us-east-1"
+
+
 def test_generic_empty_payload():
     alert = parse_alert({})
     assert alert.source == "generic"

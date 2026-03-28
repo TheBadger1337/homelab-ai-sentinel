@@ -358,6 +358,17 @@ def _parse_netdata(data: dict[str, Any]) -> NormalizedAlert:
 # Generic (fallback)
 # ---------------------------------------------------------------------------
 
+# Keys whose exact lowercase form indicates a credential field.
+_SENSITIVE_KEYS = {
+    "password", "passwd", "token", "secret", "key", "api_key",
+    "auth", "authorization", "access_token", "refresh_token",
+    "private_key", "credential", "credentials",
+}
+# Substrings that — if found in a key name — indicate a compound credential
+# field (e.g. bearer_token, oauth_token, client_secret, app_secret).
+_SENSITIVE_SUBSTRINGS = ("token", "secret", "password", "passwd", "credential")
+
+
 def _parse_generic(data: dict[str, Any]) -> NormalizedAlert:
     # Best-effort mapping for arbitrary JSON payloads
     status_raw = (
@@ -396,16 +407,15 @@ def _parse_generic(data: dict[str, Any]) -> NormalizedAlert:
     # Store everything else as extra context for the AI.
     # Strip keys that commonly hold credentials — the generic parser is the
     # widest injection surface and should never forward secrets to the AI prompt.
-    _SENSITIVE_KEYS = {
-        "password", "passwd", "token", "secret", "key", "api_key",
-        "auth", "authorization", "access_token", "refresh_token",
-        "private_key", "credential", "credentials",
-    }
+    # Exact-match check covers short names (key, auth, token).
+    # Substring check covers compound names (bearer_token, client_secret, etc.).
     excluded = {"status", "state", "alertstate", "service", "name",
                 "host", "source", "message", "msg", "description", "text"}
     details = {
         k: v for k, v in data.items()
-        if k not in excluded and k.lower() not in _SENSITIVE_KEYS
+        if k not in excluded
+        and k.lower() not in _SENSITIVE_KEYS
+        and not any(s in k.lower() for s in _SENSITIVE_SUBSTRINGS)
     }
 
     return NormalizedAlert(

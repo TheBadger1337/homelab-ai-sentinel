@@ -37,7 +37,10 @@ _SEVERITY_EMOJI = {
 
 def _build_subject(alert: NormalizedAlert) -> str:
     emoji = _SEVERITY_EMOJI.get(alert.severity, "⚪")
-    return f"{emoji} [{alert.severity.upper()}] {alert.service_name} — {alert.status.upper()}"
+    subject = f"{emoji} [{alert.severity.upper()}] {alert.service_name} — {alert.status.upper()}"
+    # Strip CR/LF — if service_name contains a newline, a crafted alert payload
+    # could inject arbitrary headers (To, Bcc, Content-Type) into the email.
+    return subject.replace("\r", " ").replace("\n", " ")
 
 
 def _build_plain(alert: NormalizedAlert, ai: dict[str, Any]) -> str:

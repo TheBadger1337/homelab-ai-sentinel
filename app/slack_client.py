@@ -12,6 +12,7 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .utils import _validate_url
 
 _SEVERITY_EMOJI = {
     "critical": "🔴",
@@ -112,6 +113,8 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     """
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL", "")
     if not webhook_url:
+        return
+    if not _validate_url(webhook_url, "SLACK_WEBHOOK_URL"):
         return
 
     payload = _build_message(alert, ai)

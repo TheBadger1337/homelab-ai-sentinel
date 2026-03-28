@@ -13,6 +13,7 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .utils import _validate_url
 
 # Discord renders @everyone and @here as visual mentions in embed fields.
 # Strip them by inserting a zero-width space so the text is inert.
@@ -108,6 +109,8 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     """
     webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
     if not webhook_url:
+        return
+    if not _validate_url(webhook_url, "DISCORD_WEBHOOK_URL"):
         return
 
     embed = _build_embed(alert, ai)

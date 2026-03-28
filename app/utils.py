@@ -52,7 +52,7 @@ def _validate_url(url: str, env_var: str) -> bool:
 
     hostname = (parsed.hostname or "").lower()
     if (
-        hostname in ("localhost", "127.0.0.1", "::1")
+        hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
         or hostname.startswith("127.")
         or hostname.startswith("169.254.")
     ):

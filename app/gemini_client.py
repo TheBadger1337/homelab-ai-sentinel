@@ -68,6 +68,7 @@ import logging
 import os
 import threading
 import time
+from collections import deque
 from typing import Any
 
 import requests
@@ -96,7 +97,7 @@ _session = requests.Session()
 # Set GEMINI_RPM=0 to disable the limiter (e.g. on paid tiers).
 # See: https://ai.google.dev/gemini-api/docs/rate-limits
 _rpm_lock = threading.Lock()
-_rpm_call_times: list[float] = []
+_rpm_call_times: deque[float] = deque()
 
 
 def _acquire_rpm_slot() -> bool:
@@ -112,7 +113,7 @@ def _acquire_rpm_slot() -> bool:
     with _rpm_lock:
         cutoff = now - 60.0
         while _rpm_call_times and _rpm_call_times[0] < cutoff:
-            _rpm_call_times.pop(0)
+            _rpm_call_times.popleft()
         if len(_rpm_call_times) >= limit:
             return False
         _rpm_call_times.append(now)

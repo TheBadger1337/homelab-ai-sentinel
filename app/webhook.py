@@ -43,6 +43,7 @@ import hmac
 import logging
 import os
 import time
+from collections import deque
 from threading import Lock
 
 from flask import Blueprint, jsonify, request
@@ -62,6 +63,7 @@ webhook_bp = Blueprint("webhook", __name__)
 
 _dedup_cache: dict[str, float] = {}
 _dedup_lock = Lock()
+_DEDUP_MAX_SIZE = 10_000  # max entries; evicts oldest when exceeded
 
 # ---------------------------------------------------------------------------
 # Webhook rate limiter
@@ -72,7 +74,7 @@ _dedup_lock = Lock()
 #   WEBHOOK_RATE_LIMIT=60    # allow 60 requests per window
 #   WEBHOOK_RATE_WINDOW=60   # 60-second window → 1 req/s average burst-safe
 
-_rate_timestamps: list[float] = []
+_rate_timestamps: deque[float] = deque()
 _rate_lock = Lock()
 
 
@@ -107,6 +109,10 @@ def _is_duplicate(alert: NormalizedAlert) -> bool:
         expired = [k for k, v in _dedup_cache.items() if (now - v) >= ttl]
         for k in expired:
             del _dedup_cache[k]
+        # Hard cap: if still over limit after TTL pruning (unique alert flood),
+        # evict the oldest entry. Trades dedup accuracy for bounded memory.
+        if len(_dedup_cache) > _DEDUP_MAX_SIZE:
+            del _dedup_cache[next(iter(_dedup_cache))]
 
     return False
 
@@ -125,7 +131,7 @@ def _check_rate_limit() -> bool:
     with _rate_lock:
         cutoff = now - window
         while _rate_timestamps and _rate_timestamps[0] < cutoff:
-            _rate_timestamps.pop(0)
+            _rate_timestamps.popleft()
         if len(_rate_timestamps) >= limit:
             return True
         _rate_timestamps.append(now)

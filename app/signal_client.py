@@ -103,11 +103,10 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     except ValueError:
         return  # non-JSON body on a 2xx — treat as success
     if isinstance(body, dict) and "error" in body:
-        # Log without phone numbers — they appear in the env vars, not here
+        # Log the raw error separately — the signal-cli error string can contain
+        # phone numbers (e.g. "User not found for number +1..."). Never include
+        # it in the RuntimeError message which may propagate to callers.
         logger.warning(
-            "signal-cli-rest-api returned an error body (HTTP %s)",
-            resp.status_code,
+            "signal-cli-rest-api error: %s", body.get("error", "unknown"),
         )
-        raise RuntimeError(
-            f"signal-cli-rest-api error: {body.get('error', 'unknown')}"
-        )
+        raise RuntimeError("signal-cli-rest-api error")

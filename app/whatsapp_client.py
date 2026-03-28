@@ -19,10 +19,13 @@ body for a Meta error object and raises appropriately so failures are not
 silently swallowed.
 """
 
+import logging
 import os
 from typing import Any
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 from .alert_parser import NormalizedAlert
 
@@ -120,9 +123,10 @@ def post_alert(alert: NormalizedAlert, ai: dict[str, Any]) -> None:
     if isinstance(body, dict) and "error" in body:
         err = body["error"]
         code = err.get("code", "unknown")
-        message = err.get("message", "unknown error")
-        # Do not include the token in this error — it lives in the Authorization
-        # header and is not echoed by Meta, but belt-and-suspenders.
-        raise RuntimeError(
-            f"WhatsApp API error (code {code}): {message}"
+        # Log the raw Meta error message for diagnostics but do not include it
+        # in the RuntimeError — Meta error bodies can contain the recipient phone
+        # number in certain failure conditions (unverified recipient, policy block).
+        logger.warning(
+            "WhatsApp API error (code %s): %s", code, err.get("message", "unknown error"),
         )
+        raise RuntimeError(f"WhatsApp API error (code {code})")

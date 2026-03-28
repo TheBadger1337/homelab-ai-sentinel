@@ -180,6 +180,14 @@ def test_post_alert_raises_on_http_error(monkeypatch):
             post_alert(_make_alert(), _AI)
 
 
+def test_post_alert_skips_on_non_http_url(monkeypatch):
+    """SSRF guard: file:// scheme must be rejected before making a request."""
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "file:///etc/passwd")
+    with patch("app.slack_client.requests.post") as mock_post:
+        post_alert(_make_alert(), _AI)
+    mock_post.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # _strip_mentions
 # ---------------------------------------------------------------------------

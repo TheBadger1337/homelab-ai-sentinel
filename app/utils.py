@@ -9,6 +9,28 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+_SENTINEL_MODES = ("minimal", "reactive", "predictive")
+
+
+def _sentinel_mode() -> str:
+    """
+    Return the configured operating mode.
+
+    minimal     — parse, scan, filter, dispatch; no AI call, no DB history query
+    reactive    — AI insight per alert; each event analyzed in isolation
+    predictive  — AI insight + recent alert history injected into prompt (default)
+
+    Unknown values fall back to predictive with a warning logged.
+    """
+    mode = os.environ.get("SENTINEL_MODE", "predictive").lower()
+    if mode not in _SENTINEL_MODES:
+        logger.warning(
+            "Unknown SENTINEL_MODE %r — valid: %s — falling back to predictive",
+            mode, ", ".join(_SENTINEL_MODES),
+        )
+        return "predictive"
+    return mode
+
 
 def _env_int(key: str, default: int) -> int:
     """Read an integer env var. Returns default and logs a warning on invalid values."""

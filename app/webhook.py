@@ -7,10 +7,13 @@ Flow:
   3. Validate Content-Type
   4. Parse body
   5. Normalize alert via alert_parser
-  6. Deduplication check — suppress repeat alerts within the TTL window
-  7. Severity threshold check — suppress alerts below configured threshold
-  8. Query recent alert history for AI context
-  9. Call AI provider for Insight + Suggested Actions
+  6. Injection detection — scan for prompt injection patterns (log only, never block)
+  7. Deduplication check — suppress repeat alerts within the TTL window
+  8. Severity threshold check — suppress alerts below configured threshold
+  9. Mode-dependent processing (SENTINEL_MODE):
+       minimal    — dispatch structured alert with no AI call
+       reactive   — AI insight per alert, no history context
+       predictive — AI insight + recent alert history injected into prompt (default)
   10. Dispatch to all configured notification platforms in parallel
   11. Log alert to SQLite database
   12. Return JSON response
@@ -56,7 +59,7 @@ from .gemini_client import get_ai_insight, get_rpm_status
 from . import notify
 from .security import scan_for_injection
 from .thresholds import should_suppress
-from .utils import _env_int
+from .utils import _env_int, _sentinel_mode
 
 logger = logging.getLogger(__name__)
 webhook_bp = Blueprint("webhook", __name__)
@@ -257,31 +260,39 @@ def webhook():
         log_alert(alert, None, notified=False)
         return jsonify({"status": "suppressed"}), 200
 
-    # 8. Query recent history for this service to give the AI pattern context.
-    history = get_recent_alerts(alert.service_name)
+    # 9. Mode-dependent AI processing
+    mode = _sentinel_mode()
+    ai: dict = {}
 
-    # 9. AI analysis
-    ai = get_ai_insight(alert, history=history)
-    logger.info("AI insight generated for %s", alert.service_name)
-    logger.debug("AI response: insight=%r actions=%s", ai.get("insight", "")[:200], ai.get("suggested_actions"))
+    if mode == "minimal":
+        # No AI call — dispatch the structured alert directly.
+        logger.info("Minimal mode: skipping AI call for %s", alert.service_name)
+    else:
+        # reactive: no history context; predictive: inject recent alert history
+        history = get_recent_alerts(alert.service_name) if mode == "predictive" else []
+        ai = get_ai_insight(alert, history=history)
+        logger.info("AI insight generated for %s (mode=%s)", alert.service_name, mode)
+        logger.debug("AI response: insight=%r actions=%s", ai.get("insight", "")[:200], ai.get("suggested_actions"))
 
     # 10. Dispatch to all configured platforms
     notification_errors = notify.dispatch(alert, ai)
 
     # 11. Log the processed alert (notified=True means notifications were attempted)
-    log_alert(alert, ai, notified=True)
+    log_alert(alert, ai if ai else None, notified=True)
 
     response: dict = {
         "status": "processed",
+        "mode": mode,
         "alert": {
             "source": alert.source,
             "service": alert.service_name,
             "alert_status": alert.status,
             "severity": alert.severity,
         },
-        "ai_insight": ai.get("insight"),
-        "suggested_actions": ai.get("suggested_actions", []),
     }
+    if mode != "minimal":
+        response["ai_insight"] = ai.get("insight")
+        response["suggested_actions"] = ai.get("suggested_actions", [])
     logger.debug("Dispatch complete: errors=%s", notification_errors or "none")
     if notification_errors:
         response["notification_errors"] = notification_errors

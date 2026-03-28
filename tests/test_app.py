@@ -325,6 +325,94 @@ def test_health_open_when_no_secret(client, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# SENTINEL_MODE
+# ---------------------------------------------------------------------------
+
+def _process_alert(client, monkeypatch, mode, mock_ai=None, mock_dispatch=None):
+    """Helper: POST a generic alert in a given mode, return the response."""
+    import app.webhook as wh
+    monkeypatch.setenv("SENTINEL_MODE", mode)
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    # Clear dedup cache so each call is treated as a fresh alert
+    with wh._dedup_lock:
+        wh._dedup_cache.clear()
+    payload = {"service": "nginx", "status": "down", "message": "Connection refused"}
+    with patch("app.webhook.get_ai_insight") as mai, \
+         patch("app.notify.dispatch") as md:
+        mai.return_value = mock_ai or {"insight": "AI ok", "suggested_actions": ["check logs"]}
+        md.return_value = mock_dispatch or []
+        resp = client.post("/webhook", json=payload)
+        return resp, mai, md
+
+
+def test_minimal_mode_skips_ai_call(client, monkeypatch):
+    resp, mock_ai, _ = _process_alert(client, monkeypatch, "minimal")
+    assert resp.status_code == 200
+    mock_ai.assert_not_called()
+
+
+def test_minimal_mode_response_has_no_ai_fields(client, monkeypatch):
+    resp, _, _ = _process_alert(client, monkeypatch, "minimal")
+    data = resp.get_json()
+    assert data["mode"] == "minimal"
+    assert "ai_insight" not in data
+    assert "suggested_actions" not in data
+
+
+def test_reactive_mode_calls_ai(client, monkeypatch):
+    resp, mock_ai, _ = _process_alert(client, monkeypatch, "reactive")
+    assert resp.status_code == 200
+    mock_ai.assert_called_once()
+
+
+def test_reactive_mode_passes_empty_history(client, monkeypatch):
+    """reactive mode must not inject alert history into the AI call."""
+    import app.webhook as wh
+    monkeypatch.setenv("SENTINEL_MODE", "reactive")
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    with wh._dedup_lock:
+        wh._dedup_cache.clear()
+    with patch("app.webhook.get_ai_insight") as mock_ai, \
+         patch("app.notify.dispatch", return_value=[]):
+        mock_ai.return_value = {"insight": "ok", "suggested_actions": []}
+        client.post("/webhook", json={"service": "nginx", "status": "down", "message": "x"})
+    _, kwargs = mock_ai.call_args
+    assert kwargs.get("history") == []
+
+
+def test_predictive_mode_calls_ai_with_history(client, monkeypatch):
+    """predictive mode must query history and pass it to the AI call."""
+    import app.webhook as wh
+    monkeypatch.setenv("SENTINEL_MODE", "predictive")
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    with wh._dedup_lock:
+        wh._dedup_cache.clear()
+    fake_history = [{"ts": 1, "status": "down", "severity": "critical", "message": "prev"}]
+    with patch("app.webhook.get_recent_alerts", return_value=fake_history) as mock_hist, \
+         patch("app.webhook.get_ai_insight") as mock_ai, \
+         patch("app.notify.dispatch", return_value=[]):
+        mock_ai.return_value = {"insight": "ok", "suggested_actions": []}
+        client.post("/webhook", json={"service": "nginx", "status": "down", "message": "x"})
+    mock_hist.assert_called_once()
+    _, kwargs = mock_ai.call_args
+    assert kwargs.get("history") == fake_history
+
+
+def test_mode_included_in_response(client, monkeypatch):
+    for mode in ("minimal", "reactive", "predictive"):
+        resp, _, _ = _process_alert(client, monkeypatch, mode)
+        assert resp.get_json()["mode"] == mode
+
+
+def test_unknown_mode_falls_back_to_predictive(client, monkeypatch):
+    resp, mock_ai, _ = _process_alert(client, monkeypatch, "turbo-ultra-mode")
+    assert resp.status_code == 200
+    # Falls back to predictive — AI is called
+    mock_ai.assert_called_once()
+    assert resp.get_json()["mode"] == "predictive"
+
+
+# ---------------------------------------------------------------------------
 # Dedup cache pruning
 # ---------------------------------------------------------------------------
 

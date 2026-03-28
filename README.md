@@ -217,6 +217,12 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `GEMINI_RETRIES` | `2` | Retries on 429/5xx. Uses exponential backoff. |
 | `GEMINI_RETRY_BACKOFF` | `1.0` | Base backoff seconds. Doubles each attempt: 1s → 2s → 4s. |
 
+### Operating Mode
+
+| Variable | Default | Description |
+|---|---|---|
+| `SENTINEL_MODE` | `predictive` | `minimal` — parse and dispatch, no AI call · `reactive` — AI insight per alert, no history · `predictive` — AI insight + recent alert history injected into prompt |
+
 ### Security & Rate Limiting
 
 | Variable | Default | Description |

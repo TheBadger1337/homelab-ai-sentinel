@@ -234,7 +234,7 @@ def test_generic_sensitive_keys_substring_match():
 
 def test_generic_value_redaction_jwt():
     """JWT tokens in message or detail values must not survive redaction."""
-    jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+    jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"  # betterleaks:allow
     # Bare JWT — not preceded by a credential key name
     alert_bare = parse_alert({
         "service": "myapp", "status": "down",

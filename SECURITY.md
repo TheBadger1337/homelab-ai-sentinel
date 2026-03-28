@@ -427,6 +427,7 @@ Classic example: `requests.HTTPError.__str__()` includes the full request URL. F
 | iMessage password passed in JSON request body, not URL query string — prevents credential appearing in Bluebubbles server access logs | `app/imessage_client.py` |
 | `GEMINI_TOKEN` redacted in exception log path where it could appear in URL | `app/gemini_client.py` — `safe_msg = str(exc).replace(token, "***")` |
 | Signal/WhatsApp phone numbers never included in `RuntimeError` messages — logged separately at `WARNING` so failures are visible without propagating numbers to callers | `app/signal_client.py`, `app/whatsapp_client.py` |
+| Unhandled exception handler logs `type(exc).__name__` only — not `str(exc)`, which for `requests.HTTPError` includes the full request URL (and any token in the path) | `app/__init__.py` — bare `except Exception` handler |
 
 **Gap — GEMINI_TOKEN in debug traceback frames (Informational):** The token redaction covers the `requests.RequestException` path. If the token appeared in a different exception type reaching the bare `except Exception` handler, `logger.exception("Unexpected AI error")` would log the full traceback — and under some Python logging configurations, local variable values appear in tracebacks. This is theoretical under normal operation. It becomes relevant if `SENTINEL_DEBUG=true` is left enabled long-term, since debug mode increases verbosity of logged context. Never run `SENTINEL_DEBUG=true` in a persistent production deployment.
 
@@ -448,26 +449,9 @@ Examples:
 | Field caps at 500 chars — long tokens get cut | `app/gemini_client.py` — `_FIELD_MAX` |
 | Generic parser strips credential fields by exact key name | `app/alert_parser.py` — `_SENSITIVE_KEYS` set (password, token, secret, key, auth, etc.) |
 | Generic parser strips compound credential fields by substring match | `app/alert_parser.py` — `_SENSITIVE_SUBSTRINGS` (catches bearer_token, oauth_token, client_secret, app_secret, user_password, etc.) |
-
-**Not implemented:** Pattern-based redaction (JWT tokens, API key patterns, email addresses, private IPs). For high-sensitivity environments, add a redaction step in `alert_parser.py` before normalization.
+| Pattern-based value redaction applied to `message` field and all string values in `details` | `app/alert_parser.py` — `_redact_str()`: JWT regex (`eyJ…`), inline credential regex (`token=…`, `api_key=…`), email regex; applied in `_parse_generic()` before normalization |
 
 **AI provider data retention:** Most commercial AI APIs — including Gemini's free tier — state that API calls may be used to improve their models. Paid tiers typically offer data opt-out or zero-retention agreements. If alert content includes sensitive business data, use a paid tier with a data processing agreement, or switch to a self-hosted model (Ollama, LM Studio) so alert data never leaves your machine. See [ai.google.dev/gemini-api/docs/rate-limits](https://ai.google.dev/gemini-api/docs/rate-limits) for current Gemini data policies.
-
-Recommended additions for sensitive deployments:
-```python
-import re
-
-_REDACT_PATTERNS = [
-    (re.compile(r'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'), '[JWT]'),
-    (re.compile(r'(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*\S+'), r'\1=[REDACTED]'),
-    (re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'), '[EMAIL]'),
-]
-
-def _redact(text: str) -> str:
-    for pattern, replacement in _REDACT_PATTERNS:
-        text = pattern.sub(replacement, text)
-    return text
-```
 
 ---
 
@@ -496,8 +480,9 @@ def _redact(text: str) -> str:
 | Signal CLI REST API bound to `127.0.0.1:8080` only — not accessible from network | `docker-compose.yml` |
 | Supply chain: signal-cli image pinned to SHA256 digest | `docker-compose.yml` |
 | No `--privileged` flag, no host network mode | `docker-compose.yml` |
+| Non-root container user — `appuser` with explicit UID/GID 1000; numeric `USER 1000` for Kubernetes `runAsNonRoot` compatibility | `Dockerfile` — `groupadd --gid 1000` / `useradd --uid 1000`; `COPY --chown=1000:1000`; `USER 1000` |
 
-**Recommended additions:** Run containers as non-root user (`USER 1000` in Dockerfile). Add `read_only: true` and explicit `tmpfs` mounts for write-needed paths.
+**Recommended addition:** Add `read_only: true` and explicit `tmpfs` mounts for write-needed paths in `docker-compose.yml`.
 
 ---
 
@@ -578,10 +563,11 @@ All seven clients that read URLs from environment variables are covered:
 | `DISCORD_WEBHOOK_URL` | `discord_client.py` |
 | `SLACK_WEBHOOK_URL` | `slack_client.py` |
 
-**Implemented fix:** `app/utils.py` — `_validate_url(url, env_var)` rejects:
+**Implemented fix:** `app/utils.py` — `_validate_url(url, env_var)` uses Python's `ipaddress` module to reject:
 - Non-http/https schemes (`file://`, `ftp://`, etc.)
-- Loopback addresses: `localhost`, `127.x.x.x`, `::1`, `0.0.0.0`
-- Link-local / cloud metadata: `169.254.x.x` (AWS/GCP/Azure instance metadata)
+- Loopback: `localhost`, `127.x.x.x`, `::1`, and IPv4-mapped loopback `::ffff:127.x.x.x` (Python does not set `is_loopback` on mapped addresses; the inner IPv4 address is unwrapped and checked explicitly)
+- Link-local / cloud metadata: `169.254.x.x` (AWS/GCP/Azure instance metadata), `fe80::/10` (IPv6 link-local)
+- Unspecified: `0.0.0.0`, `::` (Python `is_unspecified`)
 
 RFC1918 ranges (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`) are intentionally **allowed** — all internal notification backends (Gotify, ntfy, Signal CLI, Bluebubbles) run on the LAN.
 
@@ -752,7 +738,6 @@ These are not bugs — they are conscious scope decisions for a homelab tool.
 | No IP-based rate limiting | Requires Redis or sticky sessions; out of scope for single-container homelab | Put Nginx/Caddy in front |
 | No alert state machine (dedup is identity-based only) | Correlating open/close events requires persistent storage | Use monitoring tool's native state tracking |
 | No URL/link validation in output | Platform-specific, low priority for trusted networks | Manual review of AI output |
-| No pattern-based secret redaction | False positives on legitimate data; configurable per-deployment | Add regex redaction step in `alert_parser.py` |
 | Dedup cache is per-worker | Multi-worker deployments could process duplicates | Run single worker, or use external Redis |
 | `WEBHOOK_RATE_LIMIT` is per-worker | Each Gunicorn worker maintains its own sliding window; effective global limit is `WEBHOOK_RATE_LIMIT × WORKERS` | Run single worker, or use Nginx `limit_req` upstream |
 
@@ -796,7 +781,7 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | Signal port bound to localhost | ✅ Implemented | `docker-compose.yml` |
 | Supply chain SHA pinning | ✅ Implemented | `docker-compose.yml` |
 | IP-based rate limiting | ⚠️ Recommended | Add Nginx/Caddy upstream |
-| Pattern-based secret redaction | ⚠️ Recommended | Add to `alert_parser.py` for sensitive deployments |
+| Pattern-based secret redaction (JWT, inline creds, email) | ✅ Implemented | `_redact_str()` in `app/alert_parser.py`, applied to `message` and string detail values — see 5C |
 | `@everyone` / `@here` mention stripping | ✅ Implemented | Zero-width space in `discord_client.py`; `_strip_mentions()` in `slack_client.py` |
 | `<@USERID>` / `<@&ROLEID>` mention stripping | ✅ Implemented | `_USER_MENTION_RE` regex in `discord_client.py` and `slack_client.py` — see 4B |
 | Email subject header injection | ✅ Implemented | `_build_subject()` strips `\r`/`\n` from service name — see 4C |
@@ -804,12 +789,13 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | Generic parser exact credential key filter | ✅ Implemented | `_SENSITIVE_KEYS` set in `app/alert_parser.py` — see 5C |
 | Generic parser compound credential key filter | ✅ Implemented | `_SENSITIVE_SUBSTRINGS` substring match in `app/alert_parser.py` (bearer_token, client_secret, etc.) — see 5C |
 | Phone numbers in Signal/WhatsApp error paths | ✅ Implemented | Logged separately; `RuntimeError` contains only error code — see 5B |
+| Unhandled exception handler logs type name only, not `str(exc)` (prevents URL/token leak) | ✅ Implemented | `app/__init__.py` — `type(exc).__name__` — see 5B |
 | Dedup cache hard memory cap | ✅ Implemented | `_DEDUP_MAX_SIZE = 10_000` in `app/webhook.py`; evicts oldest on overflow — see 1C |
 | Docker log rotation | ✅ Implemented | `max-size: 10m, max-file: 3` in `docker-compose.yml` — see 3C |
 | Python dep hash pinning | ✅ Implemented | `pip-compile --generate-hashes`; Docker build fails on hash mismatch — see 6I |
 | Generic parser prompt injection surface | ⚠️ Known limitation | Wider than named parsers; mitigated by `WEBHOOK_SECRET` and field caps — see 1D |
 | URL validation in AI output | ⚠️ Recommended | Low priority for trusted networks |
-| Non-root container user | ⚠️ Recommended | Add `USER 1000` to Dockerfile |
+| Non-root container user (explicit UID/GID 1000) | ✅ Implemented | `Dockerfile` — `USER 1000`, `COPY --chown=1000:1000` — see 6A |
 | pip-audit dependency CVE scanning | ⚠️ Recommended | `pip-audit -r requirements.txt` — see 6I |
 | Encrypted backups | ⚠️ Recommended | Encrypt or exclude `.secrets.env` from homelab backups — see 8A |
 | Secrets via shell export | ⚠️ User responsibility | Always use `.secrets.env`; never `export SECRET=...` in shell — see 8B |

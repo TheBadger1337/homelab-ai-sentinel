@@ -55,11 +55,15 @@ from flask import Blueprint, jsonify, request
 
 from .alert_db import check_and_record_rate, get_db_stats, get_recent_alerts, log_alert, log_security_event, get_security_summary
 from .alert_parser import NormalizedAlert, parse_alert
-from .gemini_client import get_ai_insight, get_rpm_status
+from .utils import _env_int, _sentinel_mode, _ai_provider as _get_provider
+
+if _get_provider() == "openai":
+    from .openai_compat_client import get_ai_insight, get_rpm_status
+else:
+    from .gemini_client import get_ai_insight, get_rpm_status
 from . import notify
 from .security import scan_for_injection
 from .thresholds import should_suppress
-from .utils import _env_int, _sentinel_mode
 
 logger = logging.getLogger(__name__)
 webhook_bp = Blueprint("webhook", __name__)

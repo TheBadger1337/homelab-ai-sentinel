@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 _SENTINEL_MODES = ("minimal", "reactive", "predictive")
+_AI_PROVIDERS = ("gemini", "openai")
 
 
 def _sentinel_mode() -> str:
@@ -30,6 +31,25 @@ def _sentinel_mode() -> str:
         )
         return "predictive"
     return mode
+
+
+def _ai_provider() -> str:
+    """
+    Return the configured AI provider.
+
+    gemini  — Gemini API via GEMINI_TOKEN (default)
+    openai  — Any OpenAI-compatible endpoint via OPENAI_BASE_URL + OPENAI_API_KEY
+
+    Unknown values fall back to gemini with a warning logged.
+    """
+    provider = os.environ.get("AI_PROVIDER", "gemini").lower()
+    if provider not in _AI_PROVIDERS:
+        logger.warning(
+            "Unknown AI_PROVIDER %r — valid: %s — falling back to gemini",
+            provider, ", ".join(_AI_PROVIDERS),
+        )
+        return "gemini"
+    return provider
 
 
 def _env_int(key: str, default: int) -> int:

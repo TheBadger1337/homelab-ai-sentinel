@@ -566,7 +566,7 @@ This is not a Sentinel-specific risk — it applies to any Docker deployment.
 
 **Risk:** Notification clients construct outbound HTTP request URLs directly from operator-set environment variables. Without validation, a modified URL value becomes an SSRF vector — the `requests` library will follow any scheme including `file://`, `http://169.254.169.254/` (cloud metadata), or internal services not otherwise reachable from outside Docker.
 
-All seven clients that read URLs from environment variables are covered:
+All eight clients that read URLs from environment variables are covered:
 
 | Variable | Client |
 |---|---|
@@ -577,6 +577,7 @@ All seven clients that read URLs from environment variables are covered:
 | `MATRIX_HOMESERVER` | `matrix_client.py` |
 | `DISCORD_WEBHOOK_URL` | `discord_client.py` |
 | `SLACK_WEBHOOK_URL` | `slack_client.py` |
+| `OPENAI_BASE_URL` | `openai_compat_client.py` |
 
 **Implemented fix:** `app/utils.py` — `_validate_url(url, env_var)` uses Python's `ipaddress` module to reject:
 - Non-http/https schemes (`file://`, `ftp://`, etc.)
@@ -584,9 +585,9 @@ All seven clients that read URLs from environment variables are covered:
 - Link-local / cloud metadata: `169.254.x.x` (AWS/GCP/Azure instance metadata), `fe80::/10` (IPv6 link-local)
 - Unspecified: `0.0.0.0`, `::` (Python `is_unspecified`)
 
-RFC1918 ranges (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`) are intentionally **allowed** — all internal notification backends (Gotify, ntfy, Signal CLI, Bluebubbles) run on the LAN.
+RFC1918 ranges (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`) are intentionally **allowed** — all internal notification backends (Gotify, ntfy, Signal CLI, Bluebubbles) run on the LAN. `OPENAI_BASE_URL` also benefits from this allowance for local providers (Ollama, LM Studio, OpenClaw).
 
-Applied at call time in all seven clients before any HTTP request is made.
+Applied at call time in all eight clients before any HTTP request is made.
 
 **Severity in homelab context:** Low — env vars are operator-controlled.
 **Severity in shared deployment:** Medium.
@@ -798,7 +799,7 @@ These are emerging or theoretical attack surfaces relevant to this architecture:
 | `@everyone` / `@here` mention stripping | ✅ Implemented | Zero-width space in `discord_client.py`; `_strip_mentions()` in `slack_client.py` |
 | `<@USERID>` / `<@&ROLEID>` mention stripping | ✅ Implemented | `_USER_MENTION_RE` regex in `discord_client.py` and `slack_client.py` — see 4B |
 | Email subject header injection | ✅ Implemented | `_build_subject()` strips `\r`/`\n` from service name — see 4C |
-| URL env var scheme + host validation (SSRF) | ✅ Implemented | `_validate_url()` in `app/utils.py`, applied to all 7 clients — see 6F |
+| URL env var scheme + host validation (SSRF) | ✅ Implemented | `_validate_url()` in `app/utils.py`, applied to all 8 clients — see 6F |
 | Generic parser exact credential key filter | ✅ Implemented | `_SENSITIVE_KEYS` set in `app/alert_parser.py` — see 5C |
 | Generic parser compound credential key filter | ✅ Implemented | `_SENSITIVE_SUBSTRINGS` substring match in `app/alert_parser.py` (bearer_token, client_secret, etc.) — see 5C |
 | Phone numbers in Signal/WhatsApp error paths | ✅ Implemented | Logged separately; `RuntimeError` contains only error code — see 5B |

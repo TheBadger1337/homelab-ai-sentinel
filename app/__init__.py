@@ -37,7 +37,14 @@ def _configure_logging() -> None:
 def create_app() -> Flask:
     _configure_logging()
 
-    if not os.environ.get("GEMINI_TOKEN"):
+    provider = os.environ.get("AI_PROVIDER", "gemini").lower()
+    if provider == "openai":
+        if not os.environ.get("OPENAI_BASE_URL") or not os.environ.get("OPENAI_API_KEY") or not os.environ.get("OPENAI_MODEL"):
+            logger.warning(
+                "AI_PROVIDER=openai but OPENAI_BASE_URL, OPENAI_API_KEY, or OPENAI_MODEL is not set — "
+                "AI enrichment is unavailable. Set all three in .secrets.env to enable AI insight."
+            )
+    elif not os.environ.get("GEMINI_TOKEN"):
         logger.warning(
             "GEMINI_TOKEN is not set — AI enrichment is unavailable. "
             "Alerts will be forwarded with a canned fallback response. "

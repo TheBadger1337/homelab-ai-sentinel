@@ -7,7 +7,7 @@ exposes an OpenAI-compatible /chat/completions endpoint:
   Local (no real key needed):
     Ollama     OPENAI_BASE_URL=http://192.168.1.x:11434/v1   OPENAI_API_KEY=ollama
     LM Studio  OPENAI_BASE_URL=http://192.168.1.x:1234/v1    OPENAI_API_KEY=lm-studio
-    OpenClaw   OPENAI_BASE_URL=http://192.168.1.x:PORT/v1    OPENAI_API_KEY=openclaw
+    LocalAI    OPENAI_BASE_URL=http://192.168.1.x:PORT/v1    OPENAI_API_KEY=localai
 
   Cloud:
     Groq       OPENAI_BASE_URL=https://api.groq.com/openai/v1  OPENAI_API_KEY=gsk_...

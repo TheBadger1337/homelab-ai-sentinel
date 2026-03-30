@@ -585,7 +585,7 @@ All eight clients that read URLs from environment variables are covered:
 - Link-local / cloud metadata: `169.254.x.x` (AWS/GCP/Azure instance metadata), `fe80::/10` (IPv6 link-local)
 - Unspecified: `0.0.0.0`, `::` (Python `is_unspecified`)
 
-RFC1918 ranges (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`) are intentionally **allowed** — all internal notification backends (Gotify, ntfy, Signal CLI, Bluebubbles) run on the LAN. `OPENAI_BASE_URL` also benefits from this allowance for local providers (Ollama, LM Studio, OpenClaw).
+RFC1918 ranges (`192.168.x.x`, `10.x.x.x`, `172.16–31.x.x`) are intentionally **allowed** — all internal notification backends (Gotify, ntfy, Signal CLI, Bluebubbles) run on the LAN. `OPENAI_BASE_URL` also benefits from this allowance for local providers (Ollama, LM Studio, LocalAI).
 
 Applied at call time in all eight clients before any HTTP request is made.
 

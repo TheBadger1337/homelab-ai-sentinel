@@ -43,4 +43,4 @@ python bot.py
 
 ## Full-featured version
 
-The full bot (voice, weather, web search, personas, task management, Claude Code bridge) is documented in `docs/ops/platforms/discord.md`.
+The full bot (voice, weather, web search, personas, task management, and Claude Code bridge) is covered in the [Discord setup guide](https://sercrat.gumroad.com/).

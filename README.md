@@ -512,13 +512,15 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - Topology mapping — YAML dependency graph (`topology.yaml`) injected into AI for cascade failure analysis
 - Storm intelligence — buffer correlated alerts within a time window, single batch AI analysis + combined notification (`STORM_WINDOW`, `STORM_THRESHOLD`)
 
-**Planned:**
-- Morning brief — scheduled overnight summary
-- Web UI — recent alerts dashboard (builds on existing SQLite + WAL foundation)
-- Human feedback loop — platform buttons/reactions fed back into future AI prompts
-- Reverse triage — opt-in context scripts per service, output injected into AI prompt
+**Planned (v1.4 continued):**
+- Morning brief — scheduled AI summary of overnight quiet-hours activity, dispatched at a configured time
+- Web UI — read-only dashboard on existing SQLite + WAL foundation: recent alerts, AI insights, service health timeline, pulse stats. Comes before human feedback so interactions can be built into the UI
+- Human feedback loop — platform buttons (ignore 30m, investigate, fix), emoji reactions, and text responses stored in SQLite and injected into future AI prompts for self-learning
+- Reverse triage — opt-in context scripts per service (e.g. `ssh host "top -bn1"`), shell output injected into the AI prompt before analysis. Same opt-in pattern as all other features
+
+**Planned (parsers + platforms):**
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
-- Teams, Pushover, PagerDuty notification targets *(lower priority)*
+- Teams, Pushover, PagerDuty notification targets
 
 ---
 

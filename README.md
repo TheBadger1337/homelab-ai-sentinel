@@ -71,7 +71,7 @@ process is not running rather than overloaded.
 
 | | |
 |---|---|
-| 🤖 **Discord Bot Included** | `bot/` — reference Discord bot that connects to any OpenAI-compatible backend (Ollama, LM Studio, OpenAI). Chat, context, `!clear`. Full-featured version with voice, weather, and tool integration in the [setup guide](#premium-guides). |
+| 🤖 **Discord Bot Included** | `bot/` — reference Discord bot that connects to any OpenAI-compatible backend (Ollama, LM Studio, OpenAI). Chat, context, `!clear`. Full-featured version with voice, streaming AI, and Claude Code bridge in the [setup guide](#premium-guides). |
 | 🔔 **10 Notification Platforms** | Discord · Slack · Telegram · Ntfy · Email · WhatsApp · Signal · Gotify · Matrix · iMessage — configure any combination, all optional |
 | 🔍 **11 Alert Source Parsers** | Uptime Kuma · Grafana · Prometheus · Healthchecks.io · Netdata · Zabbix · Checkmk · WUD · Docker Events · Glances · Generic JSON — auto-detected, zero config |
 | 🤖 **AI Enrichment** | **Gemini 2.5 Flash** by default (free tier sufficient for homelab volumes) — swap to Claude, GPT-4o, Groq, or Ollama by changing one file |
@@ -312,18 +312,18 @@ services:
 
 ## Switching AI Providers
 
-The AI integration is entirely contained in `app/gemini_client.py`. Change that one file — everything else (all 11 parsers, all 10 notification clients, rate limiting, deduplication) is untouched. The only contract: `get_ai_insight()` must return `{"insight": str, "suggested_actions": list[str]}`.
+The repo ships two AI clients: `app/gemini_client.py` (default) and `app/openai_compat_client.py` (any OpenAI-compatible endpoint). Set `AI_PROVIDER=openai` plus `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` in `.secrets.env` — that's it. Everything else (all 11 parsers, all 10 notification clients, rate limiting, deduplication) is untouched. The only contract: `get_ai_insight()` must return `{"insight": str, "suggested_actions": list[str]}`.
 
-| Provider | Free Tier | Notes |
+| Provider | Free Tier | Config |
 |---|---|---|
-| **Gemini 2.5 Flash** *(default)* | ✅ | 10 RPM, 500 req/day — sufficient for homelab use |
-| **Claude (Anthropic)** | ❌ | `claude-haiku-4-5` for speed/cost |
-| **GPT-4o / GPT-4o-mini** | ❌ | `gpt-4o-mini` recommended |
-| **Groq** | ✅ | Hosted Llama 3, ~500ms latency |
-| **Ollama** | ✅ | Local inference, no data leaves your machine |
-| **LM Studio / LocalAI** | ✅ | OpenAI-compatible at `localhost:1234/v1` |
+| **Gemini 2.5 Flash** *(default)* | ✅ | `GEMINI_TOKEN` — 10 RPM, 500 req/day free tier |
+| **Ollama** | ✅ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=http://your-host:11434/v1` `OPENAI_MODEL=llama3` |
+| **LM Studio / LocalAI** | ✅ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=http://your-host:1234/v1` |
+| **Groq** | ✅ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=https://api.groq.com/openai/v1` |
+| **OpenAI (GPT-4o)** | ❌ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=https://api.openai.com/v1` |
+| **Claude (Anthropic)** | ❌ | `AI_PROVIDER=openai` via an OpenAI-compatible proxy, or swap `gemini_client.py` directly |
 
-Full drop-in implementations for every provider above: see **[Premium Guides](#premium-guides)**.
+The [setup guides](#premium-guides) cover provider-specific gotchas, exact error messages, and troubleshooting for each provider.
 
 ---
 
@@ -354,7 +354,7 @@ Covers all 11 parsers, all 10 notification clients, HMAC auth, deduplication, gl
 
 ## Premium Guides
 
-The README gets you to a working deployment. The guides cover what comes after — production gotchas, exact error messages and fixes, and setup steps that aren't in any official documentation.
+**Every Sentinel feature is open-source and included in this repo.** The README gets you to a working deployment. The guides cover what comes after — production gotchas, exact error messages and fixes, setup steps that aren't in any official documentation, and extended integrations like the full-featured Discord bot with voice, streaming AI, and Claude Code bridge. The guides provide detailed walkthroughs and implementations that build on top of Sentinel.
 
 **Platform Setup Guides** — what to configure and what fails silently:
 

@@ -43,4 +43,4 @@ python bot.py
 
 ## Full-featured version
 
-The full bot (voice, weather, web search, personas, task management, and Claude Code bridge) is covered in the [Discord setup guide](https://sercrat.gumroad.com/).
+The full-featured bot (voice, streaming AI, web search, personas, task management, and Claude Code bridge) with complete source code is in the [Discord setup guide](https://sercrat.gumroad.com/). The guide includes the bot implementation, a Claude Code bridge server, and Claude Code hooks for task completion notifications.

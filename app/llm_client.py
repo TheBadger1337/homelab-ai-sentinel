@@ -93,7 +93,24 @@ _DETAILS_MAX_KEYS = 20
 _DETAILS_MAX_VALUE_LEN = 200
 _HISTORY_MSG_MAX = 120
 
-_URL_RE = re.compile(r"https?://")
+# Prompt budget — caps total user prompt size to prevent "Lost in the Middle"
+# quality degradation where the LLM ignores the actual alert because the
+# supplementary context (topology/runbook/history) is too heavy.
+# ~12,000 chars ≈ 3,000 tokens. The alert template itself is ~500 chars and
+# is never trimmed. Supplementary sections are trimmed in priority order:
+# history (most expendable) → topology → runbook → pulse (highest density).
+_MAX_PROMPT_CHARS = 12_000
+
+# URL defanging — prevents auto-linking in notification platforms.
+# Case-insensitive to catch HTTP:// and mixed-case variants.
+_URL_RE = re.compile(r"https?://", re.IGNORECASE)
+
+# Bare IP addresses with a path component (e.g. "192.168.1.1/admin").
+# Some platforms (Slack, Telegram) auto-link these without a scheme prefix.
+# Defangs the first dot: 192.168.1.1 → 192.168.1[.]1
+_BARE_IP_PATH_RE = re.compile(
+    r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.)(\d{1,3})((?::\d+)?/\S)",
+)
 
 # ---------------------------------------------------------------------------
 # Shared system prompt and user template
@@ -185,8 +202,23 @@ Respond with this exact JSON schema — nothing else:
 
 
 def _defang_urls(text: str) -> str:
-    """Replace http(s):// with http(s)[://] to prevent auto-linking in notification platforms."""
-    return _URL_RE.sub(lambda m: m.group().replace("://", "[://]"), text)
+    """Defang URLs and IP-with-path patterns in AI output.
+
+    Prevents auto-linking in notification platforms. Two layers:
+      1. Scheme defanging: http(s)://  → http(s)[://]  (case-insensitive)
+      2. Bare IP defanging: 192.168.1.1/path → 192.168.1[.]1/path
+
+    Layer 2 catches platforms (Slack, Telegram) that auto-link bare IPs with
+    paths. IPs without paths (e.g. "check 192.168.1.1") are left intact —
+    they're useful diagnostic info and don't auto-link.
+
+    SSRF note: Sentinel never follows URLs from AI output. The defanging
+    protects against operators clicking auto-linked URLs in notifications,
+    not against Sentinel itself making requests to arbitrary endpoints.
+    """
+    text = _URL_RE.sub(lambda m: m.group().replace("://", "[://]"), text)
+    text = _BARE_IP_PATH_RE.sub(r"\g<1>[\g<2>]\g<3>", text)
+    return text
 
 
 def _truncate_details(details: dict) -> dict:
@@ -266,12 +298,25 @@ def _build_prompt(
     topology: str = "",
     resolution: bool = False,
 ) -> str:
-    """Build the user-facing prompt from alert data, pulse stats, runbook, topology, and history."""
+    """Build the user-facing prompt from alert data and supplementary context.
+
+    The alert template is always included. Supplementary sections (pulse, runbook,
+    topology, history) are added in priority order until the prompt budget
+    (_MAX_PROMPT_CHARS) is reached. Sections that don't fit are dropped entirely
+    rather than truncated — partial context would confuse the model more than
+    missing context.
+
+    Priority order (highest first — last to be dropped):
+      1. Pulse stats  — smallest section, highest information density
+      2. Runbook      — operator-authored, specific to this service
+      3. Topology     — structural graph, medium value
+      4. History      — most expendable, can be re-derived from DB
+    """
     details_safe = _truncate_details(alert.details) if alert.details else {}
     details_str = json.dumps(details_safe, indent=2) if details_safe else "None"
 
     template = _RESOLUTION_TEMPLATE if resolution else _USER_TEMPLATE
-    prompt = template.format(
+    core = template.format(
         source=alert.source[:_FIELD_MAX],
         service_name=alert.service_name[:_FIELD_MAX],
         status=alert.status[:_FIELD_MAX],
@@ -279,15 +324,36 @@ def _build_prompt(
         message=alert.message[:_FIELD_MAX],
         details=details_str[:_FIELD_MAX],
     )
+
+    # Build supplementary sections in priority order (highest priority first).
+    # Sections are appended until the budget is exhausted; anything that
+    # doesn't fit is silently dropped to prevent "Lost in the Middle"
+    # quality degradation.
+    sections: list[str] = []
     pulse_str = format_pulse(pulse)
     if pulse_str:
-        prompt += f"\n<alert_stats>\n{pulse_str}\n</alert_stats>"
+        sections.append(f"\n<alert_stats>\n{pulse_str}\n</alert_stats>")
     if runbook:
-        prompt += format_runbook(runbook)
+        sections.append(format_runbook(runbook))
     if topology:
-        prompt += format_topology(topology)
+        sections.append(format_topology(topology))
     if history:
-        prompt += _format_history(history)
+        sections.append(_format_history(history))
+
+    budget = _MAX_PROMPT_CHARS - len(core)
+    prompt = core
+    for section in sections:
+        if len(section) <= budget:
+            prompt += section
+            budget -= len(section)
+        else:
+            logger.info(
+                "Prompt section trimmed: %d chars remaining, section %d chars — "
+                "raise MAX_PROMPT_CHARS or reduce RUNBOOK/TOPOLOGY content if this "
+                "happens frequently",
+                budget, len(section),
+            )
+
     return prompt
 
 

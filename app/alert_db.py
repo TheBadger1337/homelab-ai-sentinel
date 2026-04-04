@@ -275,6 +275,23 @@ def get_outage_window(service: str) -> list[dict]:
         return []
 
 
+def close_thread_conn() -> None:
+    """
+    Close the current thread's DB connection if open.
+
+    Called by background threads (storm flush, watchdog) before they exit
+    to prevent connection leaks. Long-lived threads (Gunicorn workers) keep
+    their connections open for the process lifetime.
+    """
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _local.conn = None
+
+
 def get_recent_alerts(service: str) -> list[dict]:
     """
     Return recent alerts for a service for AI context.

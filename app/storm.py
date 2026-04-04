@@ -30,7 +30,7 @@ import threading
 import time
 from typing import Any
 
-from .alert_db import get_recent_alerts, log_alert
+from .alert_db import close_thread_conn, get_recent_alerts, log_alert
 from .alert_parser import NormalizedAlert
 from .llm_client import call_provider, get_ai_insight
 from .pulse import format_pulse
@@ -236,7 +236,12 @@ class StormBuffer:
         return True
 
     def _flush(self) -> None:
-        """Called when the storm window expires."""
+        """Called when the storm window expires.
+
+        Runs in a Timer thread — not a Gunicorn worker thread. Gets its own
+        SQLite connection via threading.local(). Connection is explicitly closed
+        after processing to prevent leaks from short-lived threads.
+        """
         with self._lock:
             entries = list(self._buffer)
             self._buffer.clear()
@@ -248,28 +253,34 @@ class StormBuffer:
         threshold = _env_int("STORM_THRESHOLD", 3)
         is_storm = len(entries) >= threshold
 
-        if is_storm:
-            logger.info(
-                "Storm detected: %d alerts in window (threshold=%d) — batch processing",
-                len(entries), threshold,
-            )
-            try:
-                _process_storm(entries)
-            except Exception:
-                logger.exception("Storm processing failed — falling back to individual")
+        try:
+            if is_storm:
+                logger.info(
+                    "Storm detected: %d alerts in window (threshold=%d) — batch processing",
+                    len(entries), threshold,
+                )
+                try:
+                    _process_storm(entries)
+                except Exception:
+                    logger.exception("Storm processing failed — falling back to individual")
+                    try:
+                        _process_individual(entries)
+                    except Exception:
+                        logger.exception("Individual fallback also failed")
+            else:
+                logger.info(
+                    "Buffer flushed: %d alert(s) below storm threshold %d — individual processing",
+                    len(entries), threshold,
+                )
                 try:
                     _process_individual(entries)
                 except Exception:
-                    logger.exception("Individual fallback also failed")
-        else:
-            logger.info(
-                "Buffer flushed: %d alert(s) below storm threshold %d — individual processing",
-                len(entries), threshold,
-            )
-            try:
-                _process_individual(entries)
-            except Exception:
-                logger.exception("Individual processing failed")
+                    logger.exception("Individual processing failed")
+        finally:
+            # Timer threads are short-lived — close the DB connection so it
+            # doesn't leak. Gunicorn worker threads keep theirs open for the
+            # process lifetime; this only affects the ephemeral Timer thread.
+            close_thread_conn()
 
     def flush_now(self) -> None:
         """Immediate flush — bypasses the timer. Used by tests."""

@@ -419,3 +419,60 @@ class TestWebhookStormIntegration:
 
         assert buf.pending_count() == 3
         buf.cancel()
+
+
+# ---------------------------------------------------------------------------
+# Storm flush DB connection cleanup
+# ---------------------------------------------------------------------------
+
+class TestStormFlushDBCleanup:
+    """Verify close_thread_conn is called after flush to prevent leaks."""
+
+    def test_flush_calls_close_thread_conn_on_storm(self, monkeypatch):
+        monkeypatch.setenv("STORM_WINDOW", "60")
+        monkeypatch.setenv("STORM_THRESHOLD", "2")
+        buf = StormBuffer()
+        for svc in ["nginx", "postgres"]:
+            buf.add(_make_entry(service=svc))
+
+        with patch("app.storm.call_provider", return_value={"insight": "storm", "suggested_actions": []}), \
+             patch("app.storm.notify") as mock_notify, \
+             patch("app.storm.log_alert"), \
+             patch("app.storm.close_thread_conn") as mock_close:
+            mock_notify.dispatch = MagicMock()
+            buf.flush_now()
+
+        mock_close.assert_called_once()
+
+    def test_flush_calls_close_thread_conn_on_individual(self, monkeypatch):
+        monkeypatch.setenv("STORM_WINDOW", "60")
+        monkeypatch.setenv("STORM_THRESHOLD", "5")
+        buf = StormBuffer()
+        buf.add(_make_entry(service="nginx"))
+
+        with patch("app.storm.get_ai_insight", return_value={"insight": "ok", "suggested_actions": []}), \
+             patch("app.storm.notify") as mock_notify, \
+             patch("app.storm.log_alert"), \
+             patch("app.storm.close_thread_conn") as mock_close:
+            mock_notify.dispatch = MagicMock()
+            buf.flush_now()
+
+        mock_close.assert_called_once()
+
+    def test_flush_calls_close_thread_conn_even_on_error(self, monkeypatch):
+        monkeypatch.setenv("STORM_WINDOW", "60")
+        monkeypatch.setenv("STORM_THRESHOLD", "2")
+        buf = StormBuffer()
+        for svc in ["nginx", "postgres"]:
+            buf.add(_make_entry(service=svc))
+
+        with patch("app.storm.call_provider", side_effect=RuntimeError("AI down")), \
+             patch("app.storm.get_ai_insight", side_effect=RuntimeError("also down")), \
+             patch("app.storm.notify") as mock_notify, \
+             patch("app.storm.log_alert"), \
+             patch("app.storm.close_thread_conn") as mock_close:
+            mock_notify.dispatch = MagicMock()
+            buf.flush_now()
+
+        # close_thread_conn must be called even when processing fails
+        mock_close.assert_called_once()

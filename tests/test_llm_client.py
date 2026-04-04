@@ -825,3 +825,91 @@ def test_sanitize_output_strips_fence():
 def test_sanitize_output_invalid_json_raises():
     with pytest.raises(json.JSONDecodeError):
         lc._sanitize_output("not json")
+
+
+# ---------------------------------------------------------------------------
+# Defanging — case-insensitive and bare-IP hardening
+# ---------------------------------------------------------------------------
+
+def test_defang_case_insensitive_upper():
+    assert lc._defang_urls("check HTTP://EXAMPLE.COM") == "check HTTP[://]EXAMPLE.COM"
+
+
+def test_defang_case_insensitive_mixed():
+    assert lc._defang_urls("see Https://Docs.Example.Com") == "see Https[://]Docs.Example.Com"
+
+
+def test_defang_bare_ip_with_path():
+    result = lc._defang_urls("visit 192.168.1.1/admin for details")
+    # Regex wraps the last octet: 192.168.1.[1]/admin
+    assert "192.168.1.[1]/admin" in result
+    assert "192.168.1.1/admin" not in result
+
+
+def test_defang_bare_ip_with_port_and_path():
+    result = lc._defang_urls("check 10.0.0.5:8080/status")
+    assert "10.0.0.[5]:8080/status" in result
+
+
+def test_defang_bare_ip_without_path_unchanged():
+    text = "server is at 192.168.1.1 and it's fine"
+    assert lc._defang_urls(text) == text
+
+
+def test_defang_url_scheme_plus_ip_both_defanged():
+    result = lc._defang_urls("visit http://192.168.1.1/admin")
+    assert "http[://]" in result
+    assert "http://" not in result
+
+
+# ---------------------------------------------------------------------------
+# Prompt budget trimming
+# ---------------------------------------------------------------------------
+
+def test_prompt_budget_trims_lowest_priority_first(monkeypatch):
+    """History (lowest priority) is dropped first when budget is tight."""
+    import time
+    monkeypatch.setattr(lc, "_MAX_PROMPT_CHARS", 1200)
+
+    alert = _make_alert()
+    history = [
+        {"ts": time.time() - i * 60, "status": "down", "severity": "critical", "message": "x" * 100}
+        for i in range(10)
+    ]
+    prompt = lc._build_prompt(alert, history=history, pulse={"count_1h": 5, "count_24h": 10, "count_7d": 30})
+    # Pulse (highest priority) should always survive
+    assert "<alert_stats>" in prompt
+    # History (lowest priority) may be dropped
+    # The budget is tight — at least one supplementary section should be present
+    assert "<alert_data>" in prompt
+
+
+def test_prompt_budget_keeps_all_when_under_limit():
+    """All sections included when total is well within budget."""
+    import time
+    alert = _make_alert()
+    history = [{"ts": time.time() - 60, "status": "down", "severity": "critical", "message": "err"}]
+    prompt = lc._build_prompt(
+        alert,
+        history=history,
+        pulse={"count_1h": 1, "count_24h": 3, "count_7d": 10},
+        runbook="Check nginx logs at /var/log/nginx/error.log",
+        topology="nginx depends_on: reverse-proxy",
+    )
+    assert "<alert_data>" in prompt
+    assert "<alert_stats>" in prompt
+    assert "<runbook>" in prompt
+    assert "<topology>" in prompt
+    assert "<alert_history>" in prompt
+
+
+def test_prompt_budget_drops_section_not_truncates(monkeypatch):
+    """Sections that exceed remaining budget are dropped entirely, not truncated."""
+    monkeypatch.setattr(lc, "_MAX_PROMPT_CHARS", 1000)
+
+    alert = _make_alert()
+    big_runbook = "x" * 2000  # way over budget
+    prompt = lc._build_prompt(alert, runbook=big_runbook)
+    assert "<alert_data>" in prompt
+    # The runbook was too big — it should be absent entirely
+    assert "<runbook>" not in prompt

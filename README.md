@@ -237,8 +237,16 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `SENTINEL_CONTEXT_FILE` | `/data/context.md` | Path to a context file (alternative to `SENTINEL_CONTEXT` env var). Mount via Docker volume for multi-line descriptions. Env var takes priority if both are set. |
 | `ESCALATION_THRESHOLD` | `0` | Auto-escalate warning→critical after N warnings for the same service within `ESCALATION_WINDOW`. `0` disables. |
 | `ESCALATION_WINDOW` | `3600` | Time window in seconds for escalation counting. Default: 1 hour. |
-| `RUNBOOK_DIR` | `/data/runbooks` | Directory containing per-service runbook files. Create `nginx.md`, `postgres.md`, etc. — matched case-insensitively against the service name. Content is injected into the AI prompt for specific remediation. |
+| `RUNBOOK_DIR` | `/data/runbooks` | Directory containing per-service runbook files. Create `nginx.md`, `postgres.md`, etc. — matched case-insensitively against the service name. Content is injected into the AI prompt for specific remediation. Also the default location for `topology.yaml`. |
+| `TOPOLOGY_FILE` | `{RUNBOOK_DIR}/topology.yaml` | Path to a YAML service dependency graph. When present, the AI considers upstream/downstream impact for cascade failure analysis. See [Topology Mapping](#topology-mapping). |
 | `COOLDOWN_SECONDS` | `0` | Per-service notification cooldown. After notifying for a service, suppress further notifications for that service for N seconds regardless of message content. `0` disables. Different from dedup (exact match only). |
+
+### Storm Intelligence
+
+| Variable | Default | Description |
+|---|---|---|
+| `STORM_WINDOW` | `0` | Buffer window in seconds. When > 0, non-recovery alerts are held for this duration. If enough accumulate, Sentinel sends one combined AI analysis instead of N individual calls. `0` disables. |
+| `STORM_THRESHOLD` | `3` | Minimum alerts in the buffer to trigger storm mode. Below this, buffered alerts are processed individually after the window closes. |
 
 ### Watchdog
 
@@ -350,6 +358,49 @@ The [setup guides](#premium-guides) cover provider-specific gotchas, exact error
 
 ---
 
+## Topology Mapping
+
+Define your service dependency graph so the AI can reason about cascade failures. When nginx goes down, the AI knows nextcloud and gitea depend on it.
+
+Create `topology.yaml` in your `RUNBOOK_DIR` (default: `/data/runbooks/`), or set `TOPOLOGY_FILE` to an explicit path:
+
+```yaml
+services:
+  nginx:
+    depends_on: [docker]
+    host: node2
+    description: Reverse proxy for all web services
+
+  postgres:
+    depends_on: [docker]
+    host: node1
+    description: Primary database
+
+  nextcloud:
+    depends_on: [nginx, postgres, redis]
+    host: node1
+
+  redis:
+    depends_on: [docker]
+    host: node1
+    description: Session cache
+
+  gitea:
+    depends_on: [nginx, postgres]
+    host: node2
+
+  docker:
+    depends_on: []
+    host: node1
+    description: Container runtime
+```
+
+You only declare `depends_on` — Sentinel derives the reverse relationships automatically. Service names are matched case-insensitively against what your monitoring tools report. The `host` and `description` fields are optional but give the AI more context.
+
+The topology is loaded once on first request and cached for the process lifetime. Restart the container to pick up changes.
+
+---
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the full threat model, data flow, secrets handling, Docker isolation, and a Security Architecture FAQ that answers auditor questions without reading the source.
@@ -457,9 +508,16 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - Resolution verification — on recovery, AI summarizes the preceding outage with a dedicated prompt
 - Watchdog heartbeat (`WATCHDOG_URL`) — periodic ping to external monitoring; alerts if Sentinel hangs
 
+**v1.4 — in progress:**
+- Topology mapping — YAML dependency graph (`topology.yaml`) injected into AI for cascade failure analysis
+- Storm intelligence — buffer correlated alerts within a time window, single batch AI analysis + combined notification (`STORM_WINDOW`, `STORM_THRESHOLD`)
+
 **Planned:**
-- Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
+- Morning brief — scheduled overnight summary
 - Web UI — recent alerts dashboard (builds on existing SQLite + WAL foundation)
+- Human feedback loop — platform buttons/reactions fed back into future AI prompts
+- Reverse triage — opt-in context scripts per service, output injected into AI prompt
+- Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
 - Teams, Pushover, PagerDuty notification targets *(lower priority)*
 
 ---

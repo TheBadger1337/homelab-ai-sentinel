@@ -15,10 +15,11 @@ Flow:
        reactive   — AI insight per alert, no history context
        predictive — AI insight + recent alert history injected into prompt (default)
   10. Per-service notification cooldown (COOLDOWN_SECONDS)
-  11. Resolution verification — on recovery, AI summarizes the outage
-  12. Dispatch to all configured notification platforms in parallel
-  13. Log alert to SQLite database
-  14. Return JSON response
+  11. Storm buffer — if STORM_WINDOW > 0 and not a recovery, buffer for correlated analysis
+  12. Resolution verification — on recovery, AI summarizes the outage
+  13. Dispatch to all configured notification platforms in parallel
+  14. Log alert to SQLite database
+  15. Return JSON response
 
 Security notes
 ==============
@@ -59,11 +60,13 @@ from .alert_db import check_and_record_rate, get_db_stats, get_last_notified_ts,
 from .alert_parser import NormalizedAlert, parse_alert
 from .pulse import get_pulse
 from .runbooks import get_runbook
+from .topology import get_topology
 from .utils import _env_int, _sentinel_mode
 
 from .llm_client import get_ai_insight, get_rpm_status
 from . import notify
 from .security import scan_for_injection
+from .storm import BufferedAlert, get_storm_buffer
 from .thresholds import _check_escalation, should_suppress
 
 logger = logging.getLogger(__name__)
@@ -284,10 +287,26 @@ def webhook():
             log_alert(alert, None, notified=False)
             return jsonify({"status": "cooled_down"}), 200
 
-    # 11. Mode-dependent AI processing
+    # 11. Storm buffer — if storm mode is enabled and this is not a recovery
+    #     alert, buffer it for correlated analysis. Recovery alerts always
+    #     bypass the buffer so good news is never delayed.
     mode = _sentinel_mode()
-    ai: dict = {}
     is_recovery = alert.status.lower() in ("up", "ok", "resolved")
+
+    if not is_recovery and _env_int("STORM_WINDOW", 0) > 0:
+        pulse = get_pulse(alert.service_name) if mode == "predictive" else None
+        runbook = get_runbook(alert.service_name)
+        topo = get_topology(alert.service_name)
+        entry = BufferedAlert(alert, pulse, runbook, topo)
+        if get_storm_buffer().add(entry):
+            logger.info(
+                "Alert buffered for storm analysis: service=%s (buffer=%d)",
+                alert.service_name, get_storm_buffer().pending_count(),
+            )
+            return jsonify({"status": "buffered"}), 200
+
+    # 12. Mode-dependent AI processing
+    ai: dict = {}
 
     if mode == "minimal":
         # No AI call — dispatch the structured alert directly.
@@ -297,6 +316,7 @@ def webhook():
         history = get_recent_alerts(alert.service_name) if mode == "predictive" else []
         pulse = get_pulse(alert.service_name) if mode == "predictive" else None
         runbook = get_runbook(alert.service_name)
+        topo = get_topology(alert.service_name)
 
         # Resolution verification — when a recovery arrives, ask the AI to
         # summarize the preceding outage using the outage window alerts.
@@ -305,12 +325,12 @@ def webhook():
             if outage:
                 ai = get_ai_insight(
                     alert, history=outage, pulse=pulse, runbook=runbook,
-                    resolution=True,
+                    topology=topo, resolution=True,
                 )
             else:
-                ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook)
+                ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook, topology=topo)
         else:
-            ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook)
+            ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook, topology=topo)
 
         logger.info("AI insight generated for %s (mode=%s)", alert.service_name, mode)
         logger.debug("AI response: insight=%r actions=%s", ai.get("insight", "")[:200], ai.get("suggested_actions"))

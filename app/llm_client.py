@@ -80,6 +80,7 @@ from .alert_parser import NormalizedAlert
 from .context import build_system_prompt
 from .pulse import format_pulse
 from .runbooks import format_runbook
+from .topology import format_topology
 from .utils import _ai_provider, _env_float, _env_int, _validate_url
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,11 @@ is a one-off event or part of an escalating pattern.
 When <alert_history> is present, use it to identify patterns such as recurring
 failures, escalating frequency, or intermittent issues — factor this into your
 insight and suggested actions.
+
+When <topology> is present, use the service dependency graph to assess cascade
+impact. If a dependency is down, mention which downstream services are likely
+affected. If the alerting service depends on something, consider whether the
+root cause might be upstream.
 """
 
 _USER_TEMPLATE = """\
@@ -257,9 +263,10 @@ def _build_prompt(
     history: list[dict] | None = None,
     pulse: dict | None = None,
     runbook: str = "",
+    topology: str = "",
     resolution: bool = False,
 ) -> str:
-    """Build the user-facing prompt from alert data, pulse stats, runbook, and history."""
+    """Build the user-facing prompt from alert data, pulse stats, runbook, topology, and history."""
     details_safe = _truncate_details(alert.details) if alert.details else {}
     details_str = json.dumps(details_safe, indent=2) if details_safe else "None"
 
@@ -277,6 +284,8 @@ def _build_prompt(
         prompt += f"\n<alert_stats>\n{pulse_str}\n</alert_stats>"
     if runbook:
         prompt += format_runbook(runbook)
+    if topology:
+        prompt += format_topology(topology)
     if history:
         prompt += _format_history(history)
     return prompt
@@ -613,6 +622,7 @@ def get_ai_insight(
     history: list[dict] | None = None,
     pulse: dict | None = None,
     runbook: str = "",
+    topology: str = "",
     resolution: bool = False,
 ) -> dict[str, Any]:
     """
@@ -623,7 +633,25 @@ def get_ai_insight(
     to summarize the preceding outage rather than diagnose an ongoing issue.
     Falls back to a generic response on any error — never raises.
     """
-    prompt = _build_prompt(alert, history=history, pulse=pulse, runbook=runbook, resolution=resolution)
+    prompt = _build_prompt(alert, history=history, pulse=pulse, runbook=runbook, topology=topology, resolution=resolution)
+    provider = _ai_provider()
+    if provider == "anthropic":
+        return _call_anthropic(prompt)
+    if provider == "openai":
+        return _call_openai(prompt)
+    return _call_gemini(prompt)
+
+
+def call_provider(prompt: str) -> dict[str, Any]:
+    """
+    Call the configured AI provider with a raw user prompt.
+
+    Uses the same system prompt, RPM limiting, error handling, and output
+    sanitization as get_ai_insight(). Intended for callers that build their
+    own prompt (e.g. storm intelligence).
+
+    Falls back to a generic response on any error — never raises.
+    """
     provider = _ai_provider()
     if provider == "anthropic":
         return _call_anthropic(prompt)

@@ -238,6 +238,14 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `ESCALATION_THRESHOLD` | `0` | Auto-escalate warning→critical after N warnings for the same service within `ESCALATION_WINDOW`. `0` disables. |
 | `ESCALATION_WINDOW` | `3600` | Time window in seconds for escalation counting. Default: 1 hour. |
 | `RUNBOOK_DIR` | `/data/runbooks` | Directory containing per-service runbook files. Create `nginx.md`, `postgres.md`, etc. — matched case-insensitively against the service name. Content is injected into the AI prompt for specific remediation. |
+| `COOLDOWN_SECONDS` | `0` | Per-service notification cooldown. After notifying for a service, suppress further notifications for that service for N seconds regardless of message content. `0` disables. Different from dedup (exact match only). |
+
+### Watchdog
+
+| Variable | Default | Description |
+|---|---|---|
+| `WATCHDOG_URL` | — | URL to ping periodically. If Sentinel hangs or crashes, the missed heartbeat alerts you via external monitoring (Healthchecks.io, Uptime Kuma, etc.). |
+| `WATCHDOG_INTERVAL` | `300` | Seconds between heartbeat pings. Minimum 10. |
 
 ### Security & Rate Limiting
 
@@ -439,16 +447,17 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - `/health` authentication — gated by `WEBHOOK_SECRET` when set
 - Security Architecture FAQ in SECURITY.md — walkable answers to auditor questions
 
-**v1.3 — in progress:**
+**v1.3 — complete:**
 - Prompt context injection (`SENTINEL_CONTEXT`) — describe your infrastructure once, used in every AI prompt
 - Homelab Pulse — pre-computed frequency stats (1h/24h/7d) injected into AI prompt
 - Severity escalation — N warnings in a time window auto-escalate to critical (`ESCALATION_THRESHOLD`, `ESCALATION_WINDOW`)
-
 - Runbook injection — map service names to markdown files (`RUNBOOK_DIR`) for specific remediation steps
+- Unified LLM client — Gemini, Anthropic, and OpenAI-compatible providers in a single `app/llm_client.py`
+- Per-service notification cooldown (`COOLDOWN_SECONDS`) — suppress repeat notifications beyond dedup TTL
+- Resolution verification — on recovery, AI summarizes the preceding outage with a dedicated prompt
+- Watchdog heartbeat (`WATCHDOG_URL`) — periodic ping to external monitoring; alerts if Sentinel hangs
 
 **Planned:**
-- Per-service notification cooldown — suppress repeat notifications beyond dedup TTL
-- Watchdog heartbeat — periodic POST to Healthchecks.io/Uptime Kuma; alerts if Sentinel hangs
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
 - Web UI — recent alerts dashboard (builds on existing SQLite + WAL foundation)
 - Teams, Pushover, PagerDuty notification targets *(lower priority)*

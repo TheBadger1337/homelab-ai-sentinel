@@ -222,6 +222,59 @@ def get_db_stats() -> dict:
         return {"total_alerts": None, "notified_count": None, "last_alert_ts": None}
 
 
+def get_last_notified_ts(service: str) -> float | None:
+    """
+    Return the timestamp of the most recent notified alert for a service,
+    or None if no notified alerts exist. Used by the per-service cooldown check.
+    Returns None on any DB error (fails open).
+    """
+    try:
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT MAX(ts) FROM alerts WHERE service = ? AND notified = 1",
+            (service,),
+        ).fetchone()
+        return row[0] if row and row[0] is not None else None
+    except Exception as exc:
+        logger.warning("Cooldown query failed: %s", type(exc).__name__)
+        return None
+
+
+def get_outage_window(service: str) -> list[dict]:
+    """
+    Return all alerts for a service since the last recovery (status containing
+    'up', 'ok', or 'resolved'). Used by resolution verification to summarize
+    the outage. Returns most recent first.
+    Returns an empty list on DB error.
+    """
+    try:
+        conn = _get_conn()
+        # Find the timestamp of the last recovery before this one
+        last_recovery = conn.execute(
+            """
+            SELECT MAX(ts) FROM alerts
+            WHERE service = ? AND LOWER(status) IN ('up', 'ok', 'resolved')
+            """,
+            (service,),
+        ).fetchone()
+        cutoff = last_recovery[0] if last_recovery and last_recovery[0] else 0
+
+        rows = conn.execute(
+            """
+            SELECT ts, status, severity, message
+            FROM alerts
+            WHERE service = ? AND ts > ?
+            ORDER BY ts DESC
+            LIMIT 20
+            """,
+            (service, cutoff),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.warning("Outage window query failed: %s", type(exc).__name__)
+        return []
+
+
 def get_recent_alerts(service: str) -> list[dict]:
     """
     Return recent alerts for a service for AI context.

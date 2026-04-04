@@ -4,6 +4,7 @@ import os
 from flask import Flask, jsonify
 from werkzeug.exceptions import HTTPException
 from .alert_db import init_db
+from .watchdog import start_watchdog
 from .webhook import webhook_bp
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ def create_app() -> Flask:
     app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB
     app.register_blueprint(webhook_bp)
     init_db()
+    start_watchdog()
 
     @app.errorhandler(404)
     def not_found(_: HTTPException) -> tuple:

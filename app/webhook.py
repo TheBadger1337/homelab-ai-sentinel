@@ -14,9 +14,11 @@ Flow:
        minimal    — dispatch structured alert with no AI call
        reactive   — AI insight per alert, no history context
        predictive — AI insight + recent alert history injected into prompt (default)
-  10. Dispatch to all configured notification platforms in parallel
-  11. Log alert to SQLite database
-  12. Return JSON response
+  10. Per-service notification cooldown (COOLDOWN_SECONDS)
+  11. Resolution verification — on recovery, AI summarizes the outage
+  12. Dispatch to all configured notification platforms in parallel
+  13. Log alert to SQLite database
+  14. Return JSON response
 
 Security notes
 ==============
@@ -53,7 +55,7 @@ from threading import Lock
 
 from flask import Blueprint, jsonify, request
 
-from .alert_db import check_and_record_rate, get_db_stats, get_recent_alerts, log_alert, log_security_event, get_security_summary
+from .alert_db import check_and_record_rate, get_db_stats, get_last_notified_ts, get_outage_window, get_recent_alerts, log_alert, log_security_event, get_security_summary
 from .alert_parser import NormalizedAlert, parse_alert
 from .pulse import get_pulse
 from .runbooks import get_runbook
@@ -267,9 +269,25 @@ def webhook():
         log_alert(alert, None, notified=False)
         return jsonify({"status": "suppressed"}), 200
 
-    # 10. Mode-dependent AI processing
+    # 10. Per-service cooldown — suppress notifications (not logging) if the
+    #     same service was notified within COOLDOWN_SECONDS. Different from dedup
+    #     (exact match): cooldown suppresses ANY alert for the service, handling
+    #     services that cycle through different error messages during a failure.
+    cooldown = _env_int("COOLDOWN_SECONDS", 0)
+    if cooldown > 0:
+        last_ts = get_last_notified_ts(alert.service_name)
+        if last_ts is not None and (time.time() - last_ts) < cooldown:
+            logger.info(
+                "Alert cooled down: service=%s last_notified=%.0fs ago (cooldown=%ds)",
+                alert.service_name, time.time() - last_ts, cooldown,
+            )
+            log_alert(alert, None, notified=False)
+            return jsonify({"status": "cooled_down"}), 200
+
+    # 11. Mode-dependent AI processing
     mode = _sentinel_mode()
     ai: dict = {}
+    is_recovery = alert.status.lower() in ("up", "ok", "resolved")
 
     if mode == "minimal":
         # No AI call — dispatch the structured alert directly.
@@ -279,14 +297,28 @@ def webhook():
         history = get_recent_alerts(alert.service_name) if mode == "predictive" else []
         pulse = get_pulse(alert.service_name) if mode == "predictive" else None
         runbook = get_runbook(alert.service_name)
-        ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook)
+
+        # Resolution verification — when a recovery arrives, ask the AI to
+        # summarize the preceding outage using the outage window alerts.
+        if is_recovery and mode == "predictive":
+            outage = get_outage_window(alert.service_name)
+            if outage:
+                ai = get_ai_insight(
+                    alert, history=outage, pulse=pulse, runbook=runbook,
+                    resolution=True,
+                )
+            else:
+                ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook)
+        else:
+            ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook)
+
         logger.info("AI insight generated for %s (mode=%s)", alert.service_name, mode)
         logger.debug("AI response: insight=%r actions=%s", ai.get("insight", "")[:200], ai.get("suggested_actions"))
 
-    # 11. Dispatch to all configured platforms
+    # 12. Dispatch to all configured platforms
     notification_errors = notify.dispatch(alert, ai)
 
-    # 12. Log the processed alert (notified=True means notifications were attempted)
+    # 13. Log the processed alert (notified=True means notifications were attempted)
     log_alert(alert, ai if ai else None, notified=True)
 
     response: dict = {

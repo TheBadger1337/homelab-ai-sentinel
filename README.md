@@ -223,6 +223,8 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | Variable | Default | Description |
 |---|---|---|
 | `SENTINEL_MODE` | `predictive` | `minimal` — parse and dispatch, no AI call · `reactive` — AI insight per alert, no history · `predictive` — AI insight + recent alert history injected into prompt |
+| `SENTINEL_CONTEXT` | — | Describe your infrastructure once — used in every AI prompt for more specific analysis. E.g. `"3-node Proxmox cluster, nginx on node2, TrueNAS on node3, all on 192.168.1.0/24"` |
+| `SENTINEL_CONTEXT_FILE` | `/data/context.md` | Path to a context file (alternative to `SENTINEL_CONTEXT` env var). Mount via Docker volume for multi-line descriptions. Env var takes priority if both are set. |
 
 ### Security & Rate Limiting
 
@@ -424,9 +426,11 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - `/health` authentication — gated by `WEBHOOK_SECRET` when set
 - Security Architecture FAQ in SECURITY.md — walkable answers to auditor questions
 
+**v1.3 — in progress:**
+- Prompt context injection (`SENTINEL_CONTEXT`) — describe your infrastructure once, used in every AI prompt
+
 **Planned:**
 - Homelab Pulse — pre-computed frequency stats injected before the AI call
-- Prompt context injection (`SENTINEL_CONTEXT`) — describe your infrastructure once, used in every AI prompt
 - Runbook injection — map service names to local markdown files for specific remediation steps
 - Severity escalation — N warnings in a time window → auto-escalate to critical
 - Per-service notification cooldown — suppress repeat notifications beyond dedup TTL

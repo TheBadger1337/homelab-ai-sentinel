@@ -75,6 +75,7 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .context import build_system_prompt
 from .utils import _env_int, _env_float
 
 logger = logging.getLogger(__name__)
@@ -378,7 +379,7 @@ def get_ai_insight(
         prompt += _format_history(history)
 
     payload = {
-        "systemInstruction": {"parts": [{"text": _SYSTEM_PROMPT}]},
+        "systemInstruction": {"parts": [{"text": build_system_prompt(_SYSTEM_PROMPT)}]},
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "maxOutputTokens": 1024,

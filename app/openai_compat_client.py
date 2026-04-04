@@ -37,6 +37,7 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .context import build_system_prompt
 from .utils import _env_int, _validate_url
 
 logger = logging.getLogger(__name__)
@@ -246,7 +247,7 @@ def get_ai_insight(
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": build_system_prompt(_SYSTEM_PROMPT)},
             {"role": "user", "content": prompt},
         ],
         "max_tokens": 1024,

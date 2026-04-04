@@ -225,6 +225,8 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `SENTINEL_MODE` | `predictive` | `minimal` — parse and dispatch, no AI call · `reactive` — AI insight per alert, no history · `predictive` — AI insight + recent alert history injected into prompt |
 | `SENTINEL_CONTEXT` | — | Describe your infrastructure once — used in every AI prompt for more specific analysis. E.g. `"3-node Proxmox cluster, nginx on node2, TrueNAS on node3, all on 192.168.1.0/24"` |
 | `SENTINEL_CONTEXT_FILE` | `/data/context.md` | Path to a context file (alternative to `SENTINEL_CONTEXT` env var). Mount via Docker volume for multi-line descriptions. Env var takes priority if both are set. |
+| `ESCALATION_THRESHOLD` | `0` | Auto-escalate warning→critical after N warnings for the same service within `ESCALATION_WINDOW`. `0` disables. |
+| `ESCALATION_WINDOW` | `3600` | Time window in seconds for escalation counting. Default: 1 hour. |
 
 ### Security & Rate Limiting
 
@@ -428,11 +430,11 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 
 **v1.3 — in progress:**
 - Prompt context injection (`SENTINEL_CONTEXT`) — describe your infrastructure once, used in every AI prompt
+- Homelab Pulse — pre-computed frequency stats (1h/24h/7d) injected into AI prompt
+- Severity escalation — N warnings in a time window auto-escalate to critical (`ESCALATION_THRESHOLD`, `ESCALATION_WINDOW`)
 
 **Planned:**
-- Homelab Pulse — pre-computed frequency stats injected before the AI call
 - Runbook injection — map service names to local markdown files for specific remediation steps
-- Severity escalation — N warnings in a time window → auto-escalate to critical
 - Per-service notification cooldown — suppress repeat notifications beyond dedup TTL
 - Watchdog heartbeat — periodic POST to Healthchecks.io/Uptime Kuma; alerts if Sentinel hangs
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers

@@ -64,7 +64,7 @@ else:
     from .gemini_client import get_ai_insight, get_rpm_status
 from . import notify
 from .security import scan_for_injection
-from .thresholds import should_suppress
+from .thresholds import _check_escalation, should_suppress
 
 logger = logging.getLogger(__name__)
 webhook_bp = Blueprint("webhook", __name__)
@@ -258,14 +258,18 @@ def webhook():
         )
         return jsonify({"status": "deduplicated"}), 200
 
-    # 7. Severity threshold — suppress alerts below the configured floor.
+    # 8. Severity escalation — auto-escalate repeated warnings to critical.
+    #    Runs before threshold check so the escalated severity is visible to filters.
+    _check_escalation(alert)
+
+    # 9. Severity threshold — suppress alerts below the configured floor.
     #    Suppressed alerts are still logged (notified=False) so history reflects
     #    true alert rate. Dedup runs first so only unique suppressed alerts are logged.
     if should_suppress(alert):
         log_alert(alert, None, notified=False)
         return jsonify({"status": "suppressed"}), 200
 
-    # 9. Mode-dependent AI processing
+    # 10. Mode-dependent AI processing
     mode = _sentinel_mode()
     ai: dict = {}
 
@@ -280,10 +284,10 @@ def webhook():
         logger.info("AI insight generated for %s (mode=%s)", alert.service_name, mode)
         logger.debug("AI response: insight=%r actions=%s", ai.get("insight", "")[:200], ai.get("suggested_actions"))
 
-    # 10. Dispatch to all configured platforms
+    # 11. Dispatch to all configured platforms
     notification_errors = notify.dispatch(alert, ai)
 
-    # 11. Log the processed alert (notified=True means notifications were attempted)
+    # 12. Log the processed alert (notified=True means notifications were attempted)
     log_alert(alert, ai if ai else None, notified=True)
 
     response: dict = {

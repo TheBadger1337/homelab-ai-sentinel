@@ -46,6 +46,7 @@ Examples:
 import logging
 import os
 import re
+import time as _time_mod
 from datetime import datetime, time as _Time
 
 logger = logging.getLogger(__name__)
@@ -245,6 +246,63 @@ def _should_suppress_metric(alert) -> bool:
                 alert.service_name, metric_key, value, threshold,
             )
             return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Severity escalation
+# ---------------------------------------------------------------------------
+# If a service fires N warning alerts within a time window, auto-escalate
+# severity to critical. Catches slow burns (memory creeping every 30 min)
+# that never individually cross a threshold.
+#
+# Config:
+#   ESCALATION_THRESHOLD=5      — number of warnings required (default: 0 = disabled)
+#   ESCALATION_WINDOW=3600      — time window in seconds (default: 3600 = 1 hour)
+#
+# Only escalates warning→critical. Info alerts are excluded (too noisy).
+# Critical alerts are already at the highest level.
+
+def _check_escalation(alert) -> bool:
+    """
+    Check if this alert should be escalated from warning to critical.
+    Returns True if escalation was applied (alert.severity is mutated).
+    Returns False if no escalation needed or on any error.
+    """
+    from .alert_db import _get_conn
+    from .utils import _env_int
+
+    threshold = _env_int("ESCALATION_THRESHOLD", 0)
+    if threshold <= 0:
+        return False  # escalation disabled
+
+    if alert.severity != "warning":
+        return False  # only escalate warnings
+
+    window = _env_int("ESCALATION_WINDOW", 3600)
+    try:
+        conn = _get_conn()
+        cutoff = _time_mod.time() - window
+        count = conn.execute(
+            """
+            SELECT COUNT(*) FROM alerts
+            WHERE service = ? AND severity = 'warning' AND ts >= ?
+            """,
+            (alert.service_name, cutoff),
+        ).fetchone()[0]
+
+        if count >= threshold:
+            logger.info(
+                "Severity escalated: service=%r had %d warnings in %ds window "
+                "(threshold=%d) — escalating to critical",
+                alert.service_name, count, window, threshold,
+            )
+            alert.severity = "critical"
+            return True
+
+    except Exception as exc:
+        logger.warning("Escalation check failed: %s", type(exc).__name__)
 
     return False
 

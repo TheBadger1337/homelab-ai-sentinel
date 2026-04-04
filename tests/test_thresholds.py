@@ -6,6 +6,7 @@ import pytest
 from datetime import time as _Time
 
 from app.thresholds import (
+    _check_escalation,
     _service_env_key,
     _threshold_for_service,
     _in_quiet_hours,
@@ -16,6 +17,7 @@ from app.thresholds import (
     should_suppress,
 )
 from app.alert_parser import NormalizedAlert
+from app.alert_db import init_db, log_alert
 
 
 def _alert(severity: str, service: str = "nginx", message: str = "test", details: dict | None = None) -> NormalizedAlert:
@@ -392,3 +394,96 @@ def test_metric_suppression_surfaced_through_should_suppress(monkeypatch):
     monkeypatch.setattr("app.thresholds._in_quiet_hours", lambda: False)
     assert should_suppress(_alert("critical", details={"cpu_percent": 45.0}))
     assert not should_suppress(_alert("critical", details={"cpu_percent": 92.0}))
+
+
+# ---------------------------------------------------------------------------
+# Severity escalation
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def _escalation_db(tmp_path, monkeypatch):
+    """Set up a temp DB for escalation tests."""
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setenv("DB_PATH", db_path)
+    import app.alert_db as db_mod
+    if hasattr(db_mod._local, "conn"):
+        del db_mod._local.conn
+    init_db()
+    yield
+    if hasattr(db_mod._local, "conn"):
+        try:
+            db_mod._local.conn.close()
+        except Exception:
+            pass
+        del db_mod._local.conn
+
+
+def test_escalation_disabled_by_default(monkeypatch, _escalation_db):
+    monkeypatch.delenv("ESCALATION_THRESHOLD", raising=False)
+    alert = _alert("warning")
+    assert not _check_escalation(alert)
+    assert alert.severity == "warning"
+
+
+def test_escalation_disabled_when_zero(monkeypatch, _escalation_db):
+    monkeypatch.setenv("ESCALATION_THRESHOLD", "0")
+    alert = _alert("warning")
+    assert not _check_escalation(alert)
+    assert alert.severity == "warning"
+
+
+def test_escalation_only_affects_warnings(monkeypatch, _escalation_db):
+    monkeypatch.setenv("ESCALATION_THRESHOLD", "1")
+    monkeypatch.setenv("ESCALATION_WINDOW", "3600")
+    # Log an info alert
+    log_alert(_alert("info"), None, notified=True)
+    alert = _alert("info")
+    assert not _check_escalation(alert)
+    assert alert.severity == "info"
+
+
+def test_escalation_triggers_at_threshold(monkeypatch, _escalation_db):
+    monkeypatch.setenv("ESCALATION_THRESHOLD", "3")
+    monkeypatch.setenv("ESCALATION_WINDOW", "3600")
+    # Log 3 warnings for the same service
+    for _ in range(3):
+        log_alert(_alert("warning"), None, notified=True)
+    alert = _alert("warning")
+    assert _check_escalation(alert)
+    assert alert.severity == "critical"
+
+
+def test_escalation_below_threshold_does_not_trigger(monkeypatch, _escalation_db):
+    monkeypatch.setenv("ESCALATION_THRESHOLD", "5")
+    monkeypatch.setenv("ESCALATION_WINDOW", "3600")
+    # Log only 2 warnings
+    for _ in range(2):
+        log_alert(_alert("warning"), None, notified=True)
+    alert = _alert("warning")
+    assert not _check_escalation(alert)
+    assert alert.severity == "warning"
+
+
+def test_escalation_respects_service_isolation(monkeypatch, _escalation_db):
+    monkeypatch.setenv("ESCALATION_THRESHOLD", "2")
+    monkeypatch.setenv("ESCALATION_WINDOW", "3600")
+    # 2 warnings for redis, 1 for nginx
+    for _ in range(2):
+        log_alert(_alert("warning", service="redis"), None, notified=True)
+    log_alert(_alert("warning", service="nginx"), None, notified=True)
+    # redis should escalate, nginx should not
+    redis_alert = _alert("warning", service="redis")
+    assert _check_escalation(redis_alert)
+    assert redis_alert.severity == "critical"
+    nginx_alert = _alert("warning", service="nginx")
+    assert not _check_escalation(nginx_alert)
+    assert nginx_alert.severity == "warning"
+
+
+def test_escalation_db_error_returns_false(monkeypatch, _escalation_db):
+    monkeypatch.setenv("ESCALATION_THRESHOLD", "1")
+    from unittest.mock import patch
+    with patch("app.alert_db._get_conn", side_effect=Exception("db error")):
+        alert = _alert("warning")
+        assert not _check_escalation(alert)
+        assert alert.severity == "warning"

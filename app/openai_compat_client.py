@@ -39,6 +39,7 @@ import requests
 from .alert_parser import NormalizedAlert
 from .context import build_system_prompt
 from .pulse import format_pulse
+from .runbooks import format_runbook
 from .utils import _env_int, _validate_url
 
 logger = logging.getLogger(__name__)
@@ -209,6 +210,7 @@ def get_ai_insight(
     alert: NormalizedAlert,
     history: list[dict] | None = None,
     pulse: dict | None = None,
+    runbook: str = "",
 ) -> dict[str, Any]:
     """
     Call an OpenAI-compatible chat completions endpoint and return
@@ -249,6 +251,8 @@ def get_ai_insight(
     pulse_str = format_pulse(pulse)
     if pulse_str:
         prompt += f"\n<alert_stats>\n{pulse_str}\n</alert_stats>"
+    if runbook:
+        prompt += format_runbook(runbook)
     if history:
         prompt += _format_history(history)
 

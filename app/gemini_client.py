@@ -77,6 +77,7 @@ import requests
 from .alert_parser import NormalizedAlert
 from .context import build_system_prompt
 from .pulse import format_pulse
+from .runbooks import format_runbook
 from .utils import _env_int, _env_float
 
 logger = logging.getLogger(__name__)
@@ -358,6 +359,7 @@ def get_ai_insight(
     alert: NormalizedAlert,
     history: list[dict] | None = None,
     pulse: dict | None = None,
+    runbook: str = "",
 ) -> dict[str, Any]:
     """
     Call Gemini and return {"insight": str, "suggested_actions": list[str]}.
@@ -366,6 +368,7 @@ def get_ai_insight(
     ``history`` is a list of recent alert records for this service from the
     alert DB, used to give the AI pattern context. Omit or pass None to skip.
     ``pulse`` is pre-computed frequency stats from pulse.get_pulse().
+    ``runbook`` is operator-provided remediation content for this service.
     """
     token = os.environ.get("GEMINI_TOKEN", "")
     if not token:
@@ -385,6 +388,8 @@ def get_ai_insight(
     pulse_str = format_pulse(pulse)
     if pulse_str:
         prompt += f"\n<alert_stats>\n{pulse_str}\n</alert_stats>"
+    if runbook:
+        prompt += format_runbook(runbook)
     if history:
         prompt += _format_history(history)
 

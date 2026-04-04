@@ -227,6 +227,7 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `SENTINEL_CONTEXT_FILE` | `/data/context.md` | Path to a context file (alternative to `SENTINEL_CONTEXT` env var). Mount via Docker volume for multi-line descriptions. Env var takes priority if both are set. |
 | `ESCALATION_THRESHOLD` | `0` | Auto-escalate warning→critical after N warnings for the same service within `ESCALATION_WINDOW`. `0` disables. |
 | `ESCALATION_WINDOW` | `3600` | Time window in seconds for escalation counting. Default: 1 hour. |
+| `RUNBOOK_DIR` | `/data/runbooks` | Directory containing per-service runbook files. Create `nginx.md`, `postgres.md`, etc. — matched case-insensitively against the service name. Content is injected into the AI prompt for specific remediation. |
 
 ### Security & Rate Limiting
 
@@ -433,8 +434,9 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - Homelab Pulse — pre-computed frequency stats (1h/24h/7d) injected into AI prompt
 - Severity escalation — N warnings in a time window auto-escalate to critical (`ESCALATION_THRESHOLD`, `ESCALATION_WINDOW`)
 
+- Runbook injection — map service names to markdown files (`RUNBOOK_DIR`) for specific remediation steps
+
 **Planned:**
-- Runbook injection — map service names to local markdown files for specific remediation steps
 - Per-service notification cooldown — suppress repeat notifications beyond dedup TTL
 - Watchdog heartbeat — periodic POST to Healthchecks.io/Uptime Kuma; alerts if Sentinel hangs
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers

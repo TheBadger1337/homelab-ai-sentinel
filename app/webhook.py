@@ -56,6 +56,7 @@ from flask import Blueprint, jsonify, request
 from .alert_db import check_and_record_rate, get_db_stats, get_recent_alerts, log_alert, log_security_event, get_security_summary
 from .alert_parser import NormalizedAlert, parse_alert
 from .pulse import get_pulse
+from .runbooks import get_runbook
 from .utils import _env_int, _sentinel_mode, _ai_provider as _get_provider
 
 if _get_provider() == "openai":
@@ -280,7 +281,8 @@ def webhook():
         # reactive: no history context; predictive: inject recent alert history + pulse stats
         history = get_recent_alerts(alert.service_name) if mode == "predictive" else []
         pulse = get_pulse(alert.service_name) if mode == "predictive" else None
-        ai = get_ai_insight(alert, history=history, pulse=pulse)
+        runbook = get_runbook(alert.service_name)
+        ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook)
         logger.info("AI insight generated for %s (mode=%s)", alert.service_name, mode)
         logger.debug("AI response: insight=%r actions=%s", ai.get("insight", "")[:200], ai.get("suggested_actions"))
 

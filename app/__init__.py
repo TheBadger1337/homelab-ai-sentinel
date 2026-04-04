@@ -38,17 +38,26 @@ def create_app() -> Flask:
     _configure_logging()
 
     provider = os.environ.get("AI_PROVIDER", "gemini").lower()
-    if provider == "openai":
+    if provider == "anthropic":
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            logger.warning(
+                "AI_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set — "
+                "AI enrichment is unavailable. Set it in .secrets.env to enable AI insight. "
+                "See app/llm_client.py for supported providers and configuration."
+            )
+    elif provider == "openai":
         if not os.environ.get("OPENAI_BASE_URL") or not os.environ.get("OPENAI_API_KEY") or not os.environ.get("OPENAI_MODEL"):
             logger.warning(
                 "AI_PROVIDER=openai but OPENAI_BASE_URL, OPENAI_API_KEY, or OPENAI_MODEL is not set — "
-                "AI enrichment is unavailable. Set all three in .secrets.env to enable AI insight."
+                "AI enrichment is unavailable. Set all three in .secrets.env to enable AI insight. "
+                "See app/llm_client.py for supported providers and configuration."
             )
     elif not os.environ.get("GEMINI_TOKEN"):
         logger.warning(
             "GEMINI_TOKEN is not set — AI enrichment is unavailable. "
             "Alerts will be forwarded with a canned fallback response. "
-            "Set GEMINI_TOKEN in .secrets.env to enable AI insight."
+            "Set GEMINI_TOKEN in .secrets.env or switch to AI_PROVIDER=anthropic|openai. "
+            "See app/llm_client.py for supported providers and configuration."
         )
 
     app = Flask(__name__)

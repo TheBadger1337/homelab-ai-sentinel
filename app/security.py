@@ -3,7 +3,7 @@ Prompt injection detection.
 
 Scans normalized alert fields for known injection patterns before the AI call.
 Detection is informational only — alerts are never blocked based on pattern
-matches alone. The structural mitigations in gemini_client.py (XML delimiters,
+matches alone. The structural mitigations in llm_client.py (XML delimiters,
 field caps, output validation) already limit blast radius; this layer makes
 attempts *visible* so operators can see if they're being probed.
 

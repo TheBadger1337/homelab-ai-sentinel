@@ -57,12 +57,9 @@ from .alert_db import check_and_record_rate, get_db_stats, get_recent_alerts, lo
 from .alert_parser import NormalizedAlert, parse_alert
 from .pulse import get_pulse
 from .runbooks import get_runbook
-from .utils import _env_int, _sentinel_mode, _ai_provider as _get_provider
+from .utils import _env_int, _sentinel_mode
 
-if _get_provider() == "openai":
-    from .openai_compat_client import get_ai_insight, get_rpm_status
-else:
-    from .gemini_client import get_ai_insight, get_rpm_status
+from .llm_client import get_ai_insight, get_rpm_status
 from . import notify
 from .security import scan_for_injection
 from .thresholds import _check_escalation, should_suppress

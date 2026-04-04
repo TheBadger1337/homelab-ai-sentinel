@@ -101,7 +101,7 @@ flowchart LR
     subgraph CORE["🛡️ Homelab AI Sentinel"]
         direction TB
         P["Parser\nalert_parser.py"]
-        G["AI Enrichment\ngemini_client.py"]
+        G["AI Enrichment\nllm_client.py"]
         N["Dispatch\nnotify.py"]
         P --> G --> N
     end
@@ -184,11 +184,13 @@ curl -s -X POST http://localhost:5000/webhook \
 
 ## Environment Variables
 
-### Required
+### Required (one provider)
 
 | Variable | Description |
 |---|---|
-| `GEMINI_TOKEN` | Google AI Studio API key. Get one free at [aistudio.google.com](https://aistudio.google.com) |
+| `GEMINI_TOKEN` | Google AI Studio API key *(default provider)*. Get one free at [aistudio.google.com](https://aistudio.google.com) |
+| `ANTHROPIC_API_KEY` | Anthropic API key. Requires `AI_PROVIDER=anthropic`. |
+| `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL` | OpenAI-compatible endpoint. Requires `AI_PROVIDER=openai`. |
 
 ### Notification Platforms
 
@@ -213,10 +215,18 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 
 | Variable | Default | Description |
 |---|---|---|
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Model name. Override if Google releases a versioned name (e.g. `gemini-2.5-flash-001`) |
-| `GEMINI_RPM` | `10` | Max AI calls per minute. Matches free tier. Set `0` to disable. |
-| `GEMINI_RETRIES` | `2` | Retries on 429/5xx. Uses exponential backoff. |
-| `GEMINI_RETRY_BACKOFF` | `1.0` | Base backoff seconds. Doubles each attempt: 1s → 2s → 4s. |
+| `AI_PROVIDER` | `gemini` | AI backend: `gemini`, `anthropic`, or `openai` (also covers Ollama, Groq, LM Studio) |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name |
+| `GEMINI_RPM` | `10` | Gemini max AI calls per minute. Matches free tier. Set `0` to disable. |
+| `GEMINI_RETRIES` | `2` | Gemini retries on 429/5xx. Uses exponential backoff. |
+| `GEMINI_RETRY_BACKOFF` | `1.0` | Gemini base backoff seconds. Doubles each attempt: 1s → 2s → 4s. |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model name |
+| `ANTHROPIC_RPM` | `0` | Anthropic max AI calls per minute. `0` disables. |
+| `ANTHROPIC_TIMEOUT` | `30` | Anthropic request timeout in seconds |
+| `OPENAI_MODEL` | — | Model name as your provider knows it (e.g. `gpt-4o`, `llama3`, `qwen2.5:latest`) |
+| `OPENAI_BASE_URL` | — | Base URL (e.g. `http://192.168.1.x:11434/v1` for Ollama) |
+| `OPENAI_RPM` | `0` | OpenAI-compat max AI calls per minute. `0` disables (local inference has no quota). |
+| `OPENAI_TIMEOUT` | `30` | OpenAI-compat request timeout in seconds |
 
 ### Operating Mode
 
@@ -317,16 +327,16 @@ services:
 
 ## Switching AI Providers
 
-The repo ships two AI clients: `app/gemini_client.py` (default) and `app/openai_compat_client.py` (any OpenAI-compatible endpoint). Set `AI_PROVIDER=openai` plus `OPENAI_BASE_URL`, `OPENAI_API_KEY`, and `OPENAI_MODEL` in `.secrets.env` — that's it. Everything else (all 11 parsers, all 10 notification clients, rate limiting, deduplication) is untouched. The only contract: `get_ai_insight()` must return `{"insight": str, "suggested_actions": list[str]}`.
+All three AI providers live in a single file: `app/llm_client.py`. Set `AI_PROVIDER` in `.secrets.env` plus the provider's env vars — that's it. Everything else (all 11 parsers, all 10 notification clients, rate limiting, deduplication) is untouched.
 
 | Provider | Free Tier | Config |
 |---|---|---|
 | **Gemini 2.5 Flash** *(default)* | ✅ | `GEMINI_TOKEN` — 10 RPM, 500 req/day free tier |
+| **Claude (Anthropic)** | ❌ | `AI_PROVIDER=anthropic` `ANTHROPIC_API_KEY=sk-ant-...` |
+| **OpenAI (GPT-4o)** | ❌ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=https://api.openai.com/v1` `OPENAI_API_KEY=sk-...` |
 | **Ollama** | ✅ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=http://your-host:11434/v1` `OPENAI_MODEL=llama3` |
 | **LM Studio / LocalAI** | ✅ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=http://your-host:1234/v1` |
 | **Groq** | ✅ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=https://api.groq.com/openai/v1` |
-| **OpenAI (GPT-4o)** | ❌ | `AI_PROVIDER=openai` `OPENAI_BASE_URL=https://api.openai.com/v1` |
-| **Claude (Anthropic)** | ❌ | `AI_PROVIDER=openai` via an OpenAI-compatible proxy, or swap `gemini_client.py` directly |
 
 The [setup guides](#premium-guides) cover provider-specific gotchas, exact error messages, and troubleshooting for each provider.
 

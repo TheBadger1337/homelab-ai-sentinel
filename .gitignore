@@ -25,3 +25,6 @@ gumroad-docs/
 
 # Claude Code context (per-developer)
 CLAUDE.md
+.claude/settings.local.json
+.claude/skills/
+.claude/agents/

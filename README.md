@@ -90,49 +90,108 @@ process is not running rather than overloaded.
 <br>
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph SRC["📡 Alert Sources — 11 parsers"]
-        direction TB
-        s1["Uptime Kuma · Grafana"]
-        s2["Prometheus · Healthchecks.io"]
-        s3["Netdata · Zabbix · Checkmk"]
-        s4["WUD · Docker Events · Glances · curl"]
+        direction LR
+        s1["Uptime Kuma · Grafana · Prometheus"]
+        s2["Healthchecks.io · Netdata · Zabbix"]
+        s3["Checkmk · WUD · Docker · Glances · curl"]
     end
 
     subgraph CORE["🛡️ Homelab AI Sentinel"]
         direction TB
-        P["Parser\nalert_parser.py"]
-        G["AI Enrichment\nllm_client.py"]
-        N["Dispatch\nnotify.py"]
-        P --> G --> N
+
+        subgraph GATE["Gate"]
+            direction LR
+            AUTH["Auth\nHMAC token"]
+            RATE["Rate Limit\nSQLite counter"]
+            PARSE["Parse\n11 auto-detected\nparsers"]
+            DEDUP["Dedup\nL1 memory\nL2 SQLite"]
+            AUTH --> RATE --> PARSE --> DEDUP
+        end
+
+        subgraph FILTER["Filter"]
+            direction LR
+            THRESH["Thresholds\nseverity · metric\nquiet hours"]
+            COOL["Cooldown\nper-service"]
+            STORM["Storm Buffer\npriority-sorted\npersisted"]
+            THRESH --> COOL --> STORM
+        end
+
+        subgraph ENRICH["Enrich"]
+            direction LR
+            AI_CALL["AI Enrichment\nbackpressure-gated\nprompt budget"]
+            INCIDENT["Incident Engine\ncorrelation · first cause\nstorm bridge"]
+            AI_CALL --> INCIDENT
+        end
+
+        subgraph OUT["Output"]
+            direction LR
+            DISPATCH["Dispatch\n10 platforms\nparallel · 30s timeout"]
+            DLQ["Dead Letter Queue\n3 retries · backoff"]
+            METRICS["Prometheus\n/metrics"]
+            DISPATCH --> DLQ
+        end
+
+        GATE --> FILTER --> ENRICH --> OUT
     end
 
     subgraph PROVIDERS["🧠 AI Provider"]
-        AI["Gemini 2.5 Flash  ·  default\nClaude · GPT · Groq · Ollama · LM Studio"]
+        direction LR
+        AI["Gemini 2.5 Flash · default\nClaude · GPT · Groq\nOllama · LM Studio"]
+    end
+
+    subgraph DB["💾 SQLite"]
+        direction LR
+        TABLES["alerts · incidents · dedup_cache\ndead_letters · rate_log\nsecurity_events · sessions"]
+    end
+
+    subgraph UI["🌐 Web UI — React SPA"]
+        direction LR
+        PAGES["Dashboard · Incidents · Alerts\nTopology Graph · Settings"]
+        SSE["SSE\nreal-time\nupdates"]
     end
 
     subgraph DEST["📬 Notification Platforms — 10 targets"]
-        direction TB
-        d1["Discord · Slack · Telegram"]
-        d2["Ntfy · Email · WhatsApp"]
-        d3["Signal · Gotify · Matrix · iMessage"]
+        direction LR
+        d1["Discord · Slack · Telegram · Ntfy · Email"]
+        d2["WhatsApp · Signal · Gotify · Matrix · iMessage"]
     end
 
-    SRC  -->|"POST /webhook"| P
-    G   -.->|"AI request"| PROVIDERS
-    PROVIDERS -.->|"insight + actions"| G
-    N   ==>|"parallel dispatch"| DEST
+    SRC -->|"POST /webhook"| GATE
+    AI_CALL -.->|"AI request"| PROVIDERS
+    PROVIDERS -.->|"insight + actions"| AI_CALL
+    ENRICH -->|"context"| DB
+    DISPATCH ==>|"parallel dispatch"| DEST
+    DLQ -.->|"retry"| DISPATCH
+    DB <-->|"/api/*"| UI
+    OUT -->|"SSE event"| SSE
 
     style CORE fill:#0f172a,stroke:#6d28d9,stroke-width:3px,color:#e2e8f0
-    style P fill:#1e293b,stroke:#6d28d9,color:#e2e8f0
-    style G fill:#4c1d95,stroke:#7c3aed,stroke-width:2px,color:#ffffff
-    style N fill:#1e293b,stroke:#6d28d9,color:#e2e8f0
+    style GATE fill:#1e293b,stroke:#6d28d9,color:#e2e8f0
+    style FILTER fill:#1e293b,stroke:#6d28d9,color:#e2e8f0
+    style ENRICH fill:#1e293b,stroke:#6d28d9,color:#e2e8f0
+    style OUT fill:#1e293b,stroke:#6d28d9,color:#e2e8f0
+    style AUTH fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style RATE fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style PARSE fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style DEDUP fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style THRESH fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style COOL fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style STORM fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style AI_CALL fill:#4c1d95,stroke:#7c3aed,stroke-width:2px,color:#ffffff
+    style INCIDENT fill:#4c1d95,stroke:#7c3aed,stroke-width:2px,color:#ffffff
+    style DISPATCH fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style DLQ fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
+    style METRICS fill:#1a1a2e,stroke:#6d28d9,color:#e2e8f0
     style SRC fill:#0f1f0f,stroke:#16a34a,color:#e2e8f0
     style PROVIDERS fill:#1c1007,stroke:#f97316,color:#e2e8f0
+    style DB fill:#0f172a,stroke:#2563eb,color:#e2e8f0
+    style UI fill:#0f172a,stroke:#22d3ee,stroke-width:2px,color:#e2e8f0
     style DEST fill:#0f172a,stroke:#2563eb,color:#e2e8f0
 ```
 
-**Solid lines** — primary data path · **Dotted lines** — AI API call · **Thick lines** — final notification output
+**Solid lines** — primary data path · **Dotted lines** — AI API call / DLQ retry · **Thick lines** — notification output · **Bidirectional** — Web UI ↔ SQLite
 
 </details>
 
@@ -503,7 +562,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model, data flow, secrets han
 
 ## Running Tests
 
-Tests are not included in the repository — they reference real network fixtures and service endpoints, so they only pass against the author's homelab environment. The test suite (873 tests) covers all 11 parsers, all 10 notification clients, HMAC auth, deduplication, global rate limiting, retry/backoff, SSRF protection, secret redaction, severity/metric/quiet-hour thresholds, SQLite alert log, prompt injection detection, security audit events, incident lifecycle, correlation engine, schema migrations, and Flask error handlers.
+Tests are not included in the repository — they reference real network fixtures and service endpoints, so they only pass against the author's homelab environment. See [SECURITY.md](SECURITY.md) for the full security architecture, threat model, and design decisions.
 
 ---
 
@@ -616,7 +675,7 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - `DB_DISABLED=true` — one switch disables all DB-dependent features
 - Transparent startup logging — warns about every configured feature that's inactive without DB
 - Accurate dispatch counting — unconfigured platforms skipped, not counted as successes
-- 873 tests covering all configurations including worst-case scenarios
+- Tested against real homelab fixtures (tests not included — see Running Tests)
 
 **Planned:**
 - Morning brief — scheduled AI summary of overnight quiet-hours activity

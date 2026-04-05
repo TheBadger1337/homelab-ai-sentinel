@@ -503,13 +503,7 @@ See [SECURITY.md](SECURITY.md) for the full threat model, data flow, secrets han
 
 ## Running Tests
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
-python -m pytest tests/ -v
-```
-
-Covers all 11 parsers, all 10 notification clients, HMAC auth, deduplication, global rate limiting, retry/backoff, SSRF protection, secret redaction, severity/metric/quiet-hour thresholds, SQLite alert log, prompt injection detection, security audit events, and Flask error handlers. No network access required.
+Tests are not included in the repository — they reference real network fixtures and service endpoints, so they only pass against the author's homelab environment. The test suite (873 tests) covers all 11 parsers, all 10 notification clients, HMAC auth, deduplication, global rate limiting, retry/backoff, SSRF protection, secret redaction, severity/metric/quiet-hour thresholds, SQLite alert log, prompt injection detection, security audit events, incident lifecycle, correlation engine, schema migrations, and Flask error handlers.
 
 ---
 

@@ -270,7 +270,7 @@ def _check_escalation(alert) -> bool:
     Returns True if escalation was applied (alert.severity is mutated).
     Returns False if no escalation needed or on any error.
     """
-    from .alert_db import _get_conn
+    from .alert_db import _get_conn, db_available
     from .utils import _env_int
 
     threshold = _env_int("ESCALATION_THRESHOLD", 0)
@@ -279,6 +279,9 @@ def _check_escalation(alert) -> bool:
 
     if alert.severity != "warning":
         return False  # only escalate warnings
+
+    if not db_available():
+        return False  # escalation requires alert history in DB
 
     window = _env_int("ESCALATION_WINDOW", 3600)
     try:

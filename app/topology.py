@@ -13,6 +13,7 @@ Expected YAML format:
     services:
       nginx:
         depends_on: [docker]
+        uses: [storage_array_01]
         host: node2
         description: Reverse proxy for all web services
 
@@ -23,10 +24,22 @@ Expected YAML format:
 
       nextcloud:
         depends_on: [nginx, postgres, redis]
+        uses: [storage_array_01]
         host: node1
 
+    shared_resources:
+      storage_array_01:
+        type: storage
+        description: TrueNAS CIFS share on node3
+
+      vlan_10:
+        type: network
+        description: IoT VLAN - 192.168.10.0/24
+
 The module derives "depended_by" relationships automatically — you only
-need to declare depends_on.
+need to declare depends_on. When multiple services share a resource
+(via "uses"), the AI can correlate simultaneous failures to the shared
+resource even if the resource itself didn't send a webhook.
 
 Cache: the file is parsed once on first call and cached for the process
 lifetime. Restart the container to pick up changes.
@@ -66,8 +79,11 @@ def _topology_path() -> str:
 
 def _load_topology() -> dict:
     """
-    Load and parse topology.yaml. Returns the full services dict, or
-    empty dict on any error.
+    Load and parse topology.yaml. Returns a dict with keys:
+      "services":         {name: {depends_on: [...], uses: [...], ...}}
+      "shared_resources": {name: {type: str, description: str}}
+
+    Returns empty dict on any error.
     """
     global _cached
     if _cached is not _UNLOADED:
@@ -102,22 +118,36 @@ def _load_topology() -> dict:
         _cached = {}
         return {}
 
-    # Normalize: ensure depends_on is always a list of strings
+    # Normalize: ensure depends_on and uses are always lists of strings
     for svc_name, svc_data in list(services.items()):
         if not isinstance(svc_data, dict):
-            services[svc_name] = {"depends_on": []}
+            services[svc_name] = {"depends_on": [], "uses": []}
             continue
-        deps = svc_data.get("depends_on", [])
-        if isinstance(deps, str):
-            svc_data["depends_on"] = [deps]
-        elif not isinstance(deps, list):
-            svc_data["depends_on"] = []
-        else:
-            svc_data["depends_on"] = [str(d) for d in deps]
+        for list_key in ("depends_on", "uses"):
+            val = svc_data.get(list_key, [])
+            if isinstance(val, str):
+                svc_data[list_key] = [val]
+            elif not isinstance(val, list):
+                svc_data[list_key] = []
+            else:
+                svc_data[list_key] = [str(d) for d in val]
 
-    logger.info("Topology loaded from %s (%d services)", path, len(services))
-    _cached = services
-    return services
+    # Parse shared_resources (optional section)
+    shared = data.get("shared_resources", {})
+    if not isinstance(shared, dict):
+        shared = {}
+    for res_name, res_data in list(shared.items()):
+        if not isinstance(res_data, dict):
+            shared[res_name] = {"type": "unknown", "description": ""}
+
+    resource_count = len(shared)
+    logger.info(
+        "Topology loaded from %s (%d services, %d shared resources)",
+        path, len(services), resource_count,
+    )
+    result = {"services": services, "shared_resources": shared}
+    _cached = result
+    return result
 
 
 def _derive_depended_by(services: dict, service_name: str) -> list[str]:
@@ -131,12 +161,69 @@ def _derive_depended_by(services: dict, service_name: str) -> list[str]:
     )
 
 
+def _find_shared_resources(
+    services: dict, shared_resources: dict, service_name: str,
+) -> list[str]:
+    """Find shared resources used by this service and list co-users.
+
+    Returns lines like:
+      'Shares "storage_array_01" (storage: TrueNAS share) with: nginx, plex'
+    """
+    key_lower = service_name.lower()
+
+    # Find which resources this service uses
+    uses: list[str] = []
+    for svc_name, svc_data in services.items():
+        if svc_name.lower() == key_lower and isinstance(svc_data, dict):
+            uses = svc_data.get("uses", [])
+            break
+
+    if not uses:
+        return []
+
+    lines = []
+    for resource_name in uses:
+        res_lower = resource_name.lower()
+        # Find other services that use the same resource
+        co_users = sorted(
+            svc for svc, data in services.items()
+            if isinstance(data, dict)
+            and svc.lower() != key_lower
+            and res_lower in [u.lower() for u in data.get("uses", [])]
+        )
+
+        res_info = shared_resources.get(resource_name, {})
+        res_type = res_info.get("type", "unknown") if isinstance(res_info, dict) else "unknown"
+        res_desc = res_info.get("description", "") if isinstance(res_info, dict) else ""
+
+        label = f"{resource_name} ({res_type}"
+        if res_desc:
+            label += f": {res_desc}"
+        label += ")"
+
+        if co_users:
+            lines.append(f'Shares "{label}" with: {", ".join(co_users)}')
+            lines.append(
+                f"If {resource_name} is degraded, all users are affected: "
+                f"{service_name}, {', '.join(co_users)}"
+            )
+        else:
+            lines.append(f'Uses resource "{label}" (no other services share it)')
+
+    return lines
+
+
 def get_topology(service_name: str) -> str:
     """
     Return topology context for a service as a formatted string.
     Returns empty string if no topology is loaded or the service is unknown.
     """
-    services = _load_topology()
+    topo = _load_topology()
+    if not topo:
+        return ""
+
+    services = topo.get("services", {})
+    shared_resources = topo.get("shared_resources", {})
     if not services:
         return ""
 
@@ -201,7 +288,11 @@ def get_topology(service_name: str) -> str:
             f"{', '.join(depended_by)}"
         )
 
-    if not depends_on and not depended_by:
+    # Shared resources
+    resource_lines = _find_shared_resources(services, shared_resources, match_key)
+    lines.extend(resource_lines)
+
+    if not depends_on and not depended_by and not resource_lines:
         lines.append("No declared dependencies or dependents.")
 
     result = "\n".join(lines)

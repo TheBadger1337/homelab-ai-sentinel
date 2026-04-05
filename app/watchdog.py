@@ -26,6 +26,7 @@ from .utils import _env_int, _validate_url
 logger = logging.getLogger(__name__)
 
 _watchdog_thread: threading.Thread | None = None
+_watchdog_lock = threading.Lock()
 
 
 def _heartbeat_loop(url: str, interval: int) -> None:
@@ -46,30 +47,32 @@ def start_watchdog() -> None:
     """
     Start the watchdog heartbeat thread if WATCHDOG_URL is configured.
     Called once from create_app(). Safe to call multiple times — only the
-    first call starts the thread.
+    first call starts the thread. Uses a lock to prevent concurrent calls
+    from starting duplicate threads.
     """
     global _watchdog_thread
-    if _watchdog_thread is not None:
-        return  # already running
+    with _watchdog_lock:
+        if _watchdog_thread is not None:
+            return  # already running
 
-    url = os.environ.get("WATCHDOG_URL", "").strip()
-    if not url:
-        return  # watchdog disabled
+        url = os.environ.get("WATCHDOG_URL", "").strip()
+        if not url:
+            return  # watchdog disabled
 
-    if not _validate_url(url, "WATCHDOG_URL"):
-        logger.warning("WATCHDOG_URL failed validation — watchdog disabled")
-        return
+        if not _validate_url(url, "WATCHDOG_URL"):
+            logger.warning("WATCHDOG_URL failed validation — watchdog disabled")
+            return
 
-    interval = _env_int("WATCHDOG_INTERVAL", 300)
-    if interval < 10:
-        logger.warning("WATCHDOG_INTERVAL=%d is too low — using 10s minimum", interval)
-        interval = 10
+        interval = _env_int("WATCHDOG_INTERVAL", 300)
+        if interval < 10:
+            logger.warning("WATCHDOG_INTERVAL=%d is too low — using 10s minimum", interval)
+            interval = 10
 
-    _watchdog_thread = threading.Thread(
-        target=_heartbeat_loop,
-        args=(url, interval),
-        daemon=True,
-        name="sentinel-watchdog",
-    )
-    _watchdog_thread.start()
-    logger.info("Watchdog started: url=%s interval=%ds", url, interval)
+        _watchdog_thread = threading.Thread(
+            target=_heartbeat_loop,
+            args=(url, interval),
+            daemon=True,
+            name="sentinel-watchdog",
+        )
+        _watchdog_thread.start()
+        logger.info("Watchdog started: url=%s interval=%ds", url, interval)

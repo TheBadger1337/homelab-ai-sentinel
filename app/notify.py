@@ -57,6 +57,28 @@ _CLIENTS: list[types.ModuleType] = [
 ]
 
 
+# Required env vars per platform — if any are missing, the platform is unconfigured.
+_REQUIRED_VARS: dict[str, list[str]] = {
+    "discord":  ["DISCORD_WEBHOOK_URL"],
+    "slack":    ["SLACK_WEBHOOK_URL"],
+    "telegram": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"],
+    "ntfy":     ["NTFY_URL"],
+    "email":    ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"],
+    "whatsapp": ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID", "WHATSAPP_TO"],
+    "signal":   ["SIGNAL_API_URL", "SIGNAL_SENDER", "SIGNAL_RECIPIENT"],
+    "gotify":   ["GOTIFY_URL", "GOTIFY_APP_TOKEN"],
+    "matrix":   ["MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN", "MATRIX_ROOM_ID"],
+    "imessage": ["IMESSAGE_URL", "IMESSAGE_PASSWORD", "IMESSAGE_TO"],
+}
+
+
+def _is_configured(client: types.ModuleType) -> bool:
+    """Return True if the platform's required env vars are all set."""
+    name = client.__name__.rsplit(".", 1)[-1].replace("_client", "")
+    required = _REQUIRED_VARS.get(name, [])
+    return all(os.environ.get(v) for v in required)
+
+
 def _is_disabled(client: types.ModuleType) -> bool:
     """
     Return True if the platform has been disabled via {NAME}_DISABLED=true.
@@ -80,6 +102,9 @@ def _safe_exc_log(exc: requests.RequestException) -> str:
     return f"{type(exc).__name__} (HTTP {status})" if status else type(exc).__name__
 
 
+_SKIPPED = "__skipped__"
+
+
 def _call_client(
     client: types.ModuleType,
     alert: NormalizedAlert,
@@ -87,13 +112,17 @@ def _call_client(
 ) -> str | None:
     """
     Call a single notification client. Returns an error string on failure,
-    None on success. Never raises — all exceptions are caught here so the
-    thread pool cannot surface unexpected exceptions to the caller.
+    _SKIPPED if the client was disabled/unconfigured, or None on success.
+    Never raises — all exceptions are caught here so the thread pool cannot
+    surface unexpected exceptions to the caller.
     """
     name = client.__name__.rsplit(".", 1)[-1].replace("_client", "")
     if _is_disabled(client):
         logger.debug("Skipping %s notifier (disabled via env var)", name)
-        return None
+        return _SKIPPED
+    if not _is_configured(client):
+        logger.debug("Skipping %s notifier (not configured)", name)
+        return _SKIPPED
     try:
         client.post_alert(alert, ai)
         logger.debug("%s notifier succeeded", name)
@@ -106,18 +135,55 @@ def _call_client(
         return f"{name} error"
 
 
-def dispatch(alert: NormalizedAlert, ai: dict[str, Any]) -> list[str]:
+class DispatchResult:
+    """Result of a dispatch operation."""
+    __slots__ = ("errors", "attempted", "succeeded")
+
+    def __init__(self, errors: list[str], attempted: int, succeeded: int):
+        self.errors = errors
+        self.attempted = attempted
+        self.succeeded = succeeded
+
+    @property
+    def all_failed(self) -> bool:
+        """True if at least one platform was attempted and none succeeded."""
+        return self.attempted > 0 and self.succeeded == 0
+
+
+_DISPATCH_TIMEOUT = 30  # seconds — max time to wait for all platforms
+
+
+def dispatch(alert: NormalizedAlert, ai: dict[str, Any]) -> DispatchResult:
     """
     Call every configured notification client in parallel.
 
-    Returns a (possibly empty) list of error strings — one entry per failed
-    platform. Never raises.
+    Returns a DispatchResult with error strings, attempted count, and success
+    count. Never raises. Individual platforms that exceed the 30-second timeout
+    are logged as timed out — prevents a single hanging SMTP connection from
+    blocking the entire dispatch indefinitely.
     """
     errors: list[str] = []
+    attempted = 0
+    succeeded = 0
     with ThreadPoolExecutor(max_workers=len(_CLIENTS)) as pool:
         futures = {pool.submit(_call_client, client, alert, ai): client for client in _CLIENTS}
-        for future in as_completed(futures):
-            result = future.result()
-            if result is not None:
-                errors.append(result)
-    return errors
+        try:
+            for future in as_completed(futures, timeout=_DISPATCH_TIMEOUT):
+                result = future.result()
+                if result == _SKIPPED:
+                    continue
+                attempted += 1
+                if result is not None:
+                    errors.append(result)
+                else:
+                    succeeded += 1
+        except TimeoutError:
+            # Some platforms didn't finish in time — log which ones timed out
+            for future, client in futures.items():
+                if not future.done():
+                    name = client.__name__.split(".")[-1].replace("_client", "")
+                    errors.append(f"{name}: timed out after {_DISPATCH_TIMEOUT}s")
+                    attempted += 1
+                    logger.warning("Dispatch timeout: %s did not complete in %ds", name, _DISPATCH_TIMEOUT)
+                    future.cancel()
+    return DispatchResult(errors, attempted, succeeded)

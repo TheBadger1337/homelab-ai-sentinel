@@ -1,0 +1,63 @@
+# ===========================================================================
+# Homelab AI Sentinel — Topology Example
+# ===========================================================================
+# Copy to topology.yaml and customize for your network.
+# Service names should match your Uptime Kuma monitor names (case-insensitive).
+#
+# Fields:
+#   depends_on — services this depends on (used for cascade analysis)
+#   uses       — shared resources (storage, network) this service uses
+#   host       — which machine runs this service
+#   description — short description for AI context
+#
+# The AI uses this graph to assess cascade impact. If a dependency is down,
+# the AI knows which downstream services are likely affected.
+# ===========================================================================
+
+services:
+  nginx:
+    depends_on: [docker]
+    host: server1
+    description: Reverse proxy for all web services
+
+  postgres:
+    depends_on: [docker]
+    uses: [nas_share]
+    host: server1
+    description: Primary database
+
+  nextcloud:
+    depends_on: [nginx, postgres, redis]
+    uses: [nas_share]
+    host: server1
+    description: File sync and collaboration
+
+  redis:
+    depends_on: [docker]
+    host: server1
+    description: Session cache and queue backend
+
+  grafana:
+    depends_on: [nginx, prometheus]
+    host: server1
+    description: Monitoring dashboards
+
+  prometheus:
+    depends_on: [docker]
+    host: server1
+    description: Metrics collection
+
+  uptime_kuma:
+    depends_on: [docker]
+    host: server1
+    description: Uptime monitoring — sends webhooks to Sentinel
+
+  docker:
+    depends_on: []
+    host: server1
+    description: Container runtime — if this is down, all containers are down
+
+shared_resources:
+  nas_share:
+    type: storage
+    description: NAS SMB share for persistent data

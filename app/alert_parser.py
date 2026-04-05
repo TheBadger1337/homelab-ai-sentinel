@@ -377,9 +377,11 @@ _SENSITIVE_SUBSTRINGS = ("token", "secret", "password", "passwd", "credential")
 # Named parsers (Uptime Kuma, Grafana, etc.) use controlled field sets and are
 # not subject to this redaction.
 
-# JWT: header.payload.signature — base64url, always starts with eyJ ({"  in base64)
+# JWT: header.payload.signature — base64url, always starts with eyJ ({"  in base64).
+# Requires all three parts with minimum lengths to reduce false positives on
+# legitimate base64 strings that happen to start with eyJ.
 _RE_JWT = re.compile(
-    r'eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+){2}'
+    r'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
 )
 
 # Inline credentials: key=value or key: value where the key names a credential field.
@@ -791,23 +793,38 @@ def parse_alert(data: dict[str, Any]) -> NormalizedAlert:
       11. Generic        — fallback for everything else
     """
     if _is_uptime_kuma(data):
-        return _parse_uptime_kuma(data)
-    if _is_grafana(data):
-        return _parse_grafana(data)
-    if _is_alertmanager(data):
-        return _parse_alertmanager(data)
-    if _is_healthchecks(data):
-        return _parse_healthchecks(data)
-    if _is_netdata(data):
-        return _parse_netdata(data)
-    if _is_zabbix(data):
-        return _parse_zabbix(data)
-    if _is_checkmk(data):
-        return _parse_checkmk(data)
-    if _is_wud(data):
-        return _parse_wud(data)
-    if _is_docker_events(data):
-        return _parse_docker_events(data)
-    if _is_glances(data):
-        return _parse_glances(data)
-    return _parse_generic(data)
+        alert = _parse_uptime_kuma(data)
+    elif _is_grafana(data):
+        alert = _parse_grafana(data)
+    elif _is_alertmanager(data):
+        alert = _parse_alertmanager(data)
+    elif _is_healthchecks(data):
+        alert = _parse_healthchecks(data)
+    elif _is_netdata(data):
+        alert = _parse_netdata(data)
+    elif _is_zabbix(data):
+        alert = _parse_zabbix(data)
+    elif _is_checkmk(data):
+        alert = _parse_checkmk(data)
+    elif _is_wud(data):
+        alert = _parse_wud(data)
+    elif _is_docker_events(data):
+        alert = _parse_docker_events(data)
+    elif _is_glances(data):
+        alert = _parse_glances(data)
+    else:
+        alert = _parse_generic(data)
+
+    # Universal secret redaction — applied to ALL parsers as a post-processing
+    # step. Named parsers use controlled field sets and _parse_generic already
+    # redacts, but a monitoring tool could embed a secret in any message field
+    # (e.g. "failed to connect to postgres://user:pass@host"). This ensures
+    # secrets never reach the AI or notification platforms regardless of source.
+    alert.message = _redact_str(alert.message)
+    if alert.details:
+        alert.details = {
+            k: _redact_str(v) if isinstance(v, str) else v
+            for k, v in alert.details.items()
+        }
+
+    return alert

@@ -1,3 +1,12 @@
+# Stage 1: Build the React frontend
+FROM node:20-alpine AS frontend
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY ui/ ./
+RUN npm run build
+
+# Stage 2: Python application
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -13,16 +22,21 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 # Numeric USER below ensures compatibility with Kubernetes runAsNonRoot policies
 # and avoids depending on /etc/passwd being present in all base images.
 RUN groupadd --gid 1000 appuser && \
-    useradd --uid 1000 --gid 1000 --no-create-home --shell /bin/false appuser
+    useradd --uid 1000 --gid 1000 --create-home --shell /bin/false appuser
 
-# Create the data directory for the SQLite alert log.
+# Create the data directory for the SQLite alert log and runbooks/topology.
 # Named volume mounts copy the image directory's ownership — setting it here
 # ensures the volume is initialised with the correct UID before USER drops root.
-RUN mkdir /data && chown 1000:1000 /data
+RUN mkdir -p /data/runbooks && chown -R 1000:1000 /data
 
 # Copy application files and set ownership in a single layer.
 # --chown avoids a separate RUN chown that would double the layer size for /app.
 COPY --chown=1000:1000 . .
+
+# Copy built frontend from stage 1 into the static directory.
+# Vite builds into /static (ui/../static from workdir /ui).
+# Flask serves these via the SPA-aware 404 handler.
+COPY --from=frontend --chown=1000:1000 /static /app/static
 
 USER 1000
 

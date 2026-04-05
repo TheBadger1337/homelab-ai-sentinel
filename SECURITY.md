@@ -867,3 +867,30 @@ None built into Sentinel — by design. Alert data in transit is plaintext HTTP 
 
 **What is the data retention policy?**
 Alerts are retained indefinitely in SQLite until manually pruned. There is no automatic expiry. The named Docker volume (`sentinel-data`) persists across container restarts. To clear history: `docker run --rm -v sentinel-data:/data alpine rm /data/sentinel.db` and restart Sentinel.
+
+---
+
+## v2.0 Audit Log — 2026-04-05
+
+All 18 findings from the v2.0 security/reliability audit have been **fixed**.
+
+| # | Finding | Severity | Fix |
+|---|---------|----------|-----|
+| 1 | Storm buffer data loss on container restart | CRITICAL | Persistent `storm_buffer` SQLite table + atexit flush + startup recovery |
+| 2 | Recovery alert can resolve wrong incident | CRITICAL | `exclude_storm=True` in recovery path; `resolve_incident()` returns bool |
+| 3 | AI backpressure disabled by default | HIGH | Default `AI_CONCURRENCY=4` (was 0) |
+| 4 | AI semaphore lazy-init TOCTOU race | HIGH | Double-checked locking with `threading.Lock` |
+| 5 | No per-future timeout on dispatch | HIGH | `as_completed(timeout=30)` with per-platform timeout logging |
+| 6 | Rate limiter not atomic | HIGH | `BEGIN IMMEDIATE` transaction |
+| 7 | L2 dedup write-through race | HIGH | `BEGIN IMMEDIATE` on `record_dedup_l2()` |
+| 8 | Concurrent recovery double-resolve | HIGH | Pre-check open incident before AI call; `resolve_incident()` returns bool |
+| 9 | WAL checkpoint blocks writers | MEDIUM | `PRAGMA wal_checkpoint(PASSIVE)` (was TRUNCATE) |
+| 10 | Storm flush in unmanaged daemon thread | MEDIUM | `atexit.register(_atexit_flush)` flushes on clean shutdown |
+| 11 | Dedup key ignores severity | MEDIUM | Severity included in dedup key hash |
+| 12 | `_MAX_PROMPT_CHARS` not dynamic | MEDIUM | Changed to `_max_prompt_chars()` function, reads env each call |
+| 13 | Housekeeper/watchdog start guards not thread-safe | MEDIUM | `threading.Lock` around both start guards |
+| 14 | Gunicorn timeout tight for worst-case | MEDIUM | Default increased from 60s to 120s |
+| 15 | JWT regex could match legitimate base64 | LOW | Require 10+ chars in each of the 3 JWT segments |
+| 16 | SPA doesn't know about `needs_setup` | LOW | Setup page added; AuthGuard redirects to `/setup` |
+| 17 | No password change/reset path | LOW | `POST /api/change-password` endpoint added |
+| 18 | Container Permission denied /home/appuser | LOW | Dockerfile `--no-create-home` → `--create-home` |

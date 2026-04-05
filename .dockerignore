@@ -10,3 +10,7 @@ tests/
 requirements-dev.txt
 pyrightconfig.json
 .pytest_cache/
+runbooks/
+docs/
+gumroad-docs/
+.claude/

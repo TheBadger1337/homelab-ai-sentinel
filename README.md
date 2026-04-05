@@ -74,10 +74,11 @@ process is not running rather than overloaded.
 | 🤖 **Discord Bot Included** | `bot/` — reference Discord bot that connects to any OpenAI-compatible backend (Ollama, LM Studio, OpenAI). Chat, context, `!clear`. Full-featured version with voice, streaming AI, and Claude Code bridge in the [setup guide](#premium-guides). |
 | 🔔 **10 Notification Platforms** | Discord · Slack · Telegram · Ntfy · Email · WhatsApp · Signal · Gotify · Matrix · iMessage — configure any combination, all optional |
 | 🔍 **11 Alert Source Parsers** | Uptime Kuma · Grafana · Prometheus · Healthchecks.io · Netdata · Zabbix · Checkmk · WUD · Docker Events · Glances · Generic JSON — auto-detected, zero config |
-| 🤖 **AI Enrichment** | **Gemini 2.5 Flash** by default (free tier sufficient for homelab volumes) — swap to Claude, GPT-4o, Groq, or Ollama by changing one file |
+| 🤖 **AI Enrichment** | **Gemini 2.5 Flash** by default (free tier sufficient for homelab volumes) — swap to Claude, GPT-4o, Grok, Groq, or any local model via Ollama/LM Studio/llama.cpp/vLLM |
 | 🔒 **Zero System Access** | Stateless and read-only. Sentinel receives JSON, calls an AI API, sends text. The AI cannot restart services, run commands, or read your filesystem |
 | 🧪 **Production-Hardened** | HMAC auth · deduplication · global rate limiting · retry/backoff · graceful fallback · SSRF protection · secret redaction · prompt injection detection · security audit log |
 | 💸 **Free to Run** | Defaults to Gemini 2.5 Flash (free tier: 10 RPM, 500 req/day) — swap to Claude, GPT-4o, Groq, or run fully local with Ollama or LM Studio — no data leaves your machine |
+| 🌐 **Web Dashboard** | Real-time incident timeline, topology view, severity-coded alerts — opt-in, requires DB + password |
 
 ---
 
@@ -134,6 +135,89 @@ flowchart LR
 **Solid lines** — primary data path · **Dotted lines** — AI API call · **Thick lines** — final notification output
 
 </details>
+
+---
+
+## Feature Tiers — What You're Opting Into
+
+Every feature is opt-in. Sentinel has three independent tiers. Each builds on the previous but you choose how far to go. **We are transparent about what each tier adds to your threat model.**
+
+### Tier 1: Stateless Core (default — no DB, no UI)
+
+**What it does:** Webhook in → parse → threshold filter → AI insight → notification out.
+
+**What you get:** All 11 parsers, all 10 notification platforms, AI enrichment (3 providers + failover), HMAC auth, in-memory dedup (L1), severity/metric/quiet-hour thresholds, storm buffering, watchdog heartbeat, Prometheus metrics, secret redaction, prompt injection detection.
+
+**What you don't get:** Alert history, cross-worker dedup, rate limiting, per-service cooldown, severity escalation, dead letter queue, incidents, web UI.
+
+**Threat model:** Sentinel processes alert payloads in memory and forwards them to AI + notification APIs. Nothing is stored on disk. Attack surface is the `/webhook` endpoint (protect with `WEBHOOK_SECRET`), outbound AI API calls (alert data is sent to your AI provider), and outbound notification calls.
+
+### Tier 2: Stateful (add `DB_PATH`)
+
+**What it adds on top of Tier 1:**
+
+| Feature | What it does | Why it needs DB |
+|---|---|---|
+| Alert logging | Stores every alert with AI response | Queries the `alerts` table |
+| Dedup L2 | Cross-worker and post-restart dedup | Shared `dedup_cache` table |
+| Rate limiting | Sliding window request counter | Shared `rate_log` table |
+| Per-service cooldown | Suppress repeat notifications | Reads `last_notified_ts` from alerts |
+| Severity escalation | Auto-escalate repeated warnings | Counts recent warnings in alerts |
+| Dead letter queue | Retry failed notifications | Stores failed dispatches in `dead_letters` |
+| Incidents | Group related alerts, track lifecycle | `incidents` table with alert linking |
+| Correlation | Link downstream alerts to upstream incidents | Reads open incidents + topology graph |
+| Pulse stats | Alert frequency analysis for AI context | Queries alert history (1h/24h/7d) |
+| Housekeeper | Auto-prune old data, retry DLQ, WAL checkpoint | Background thread operating on all tables |
+
+**Threat model addition:** A SQLite file on disk contains alert payloads, AI responses, and service names. Anyone with read access to the Docker volume can see your alert history. Protect the volume. Set `RETENTION_DAYS` to limit how much history is retained.
+
+**To disable all Tier 2 features at once:** Set `DB_DISABLED=true`. You don't need to comment out 9 individual settings — one switch turns them all off.
+
+### Tier 3: Web UI (add `UI_PASSWORD` on top of Tier 2)
+
+**What it adds:** Browser dashboard with real-time incident timeline, topology view, alert history, severity-coded status, SSE live updates.
+
+**Threat model addition:** Exposes `/api/*` endpoints with session cookie authentication (HTTP-only, SameSite=Strict). This is a separate auth domain from webhook HMAC — compromising one does not compromise the other. The React SPA makes zero external network calls (no CDN, no analytics, no telemetry). All assets are served from the container.
+
+**Requires:** DB (Tier 2) must be active. Without it, the UI has nothing to display — sessions, incidents, and alert history are all in SQLite. Sentinel will warn you at startup if `UI_PASSWORD` is set but DB is unavailable.
+
+### Dependency Map
+
+```
+Tier 1 (Stateless Core)
+├── Alert parsing .............. always works
+├── Severity thresholds ........ env vars only
+├── Quiet hours ................ env vars + system clock
+├── Metric thresholds .......... env vars + alert data
+├── Dedup L1 (in-memory) ....... always works (per-worker)
+├── AI enrichment .............. requires provider API key
+│   ├── reactive mode .......... AI key only
+│   └── predictive mode ........ AI key (+ DB for history/pulse, degrades without)
+├── Storm buffering ............ in-memory (incident linking requires DB)
+├── Notification dispatch ...... platform credentials only
+├── Topology (AI context) ...... YAML file on disk
+├── Runbooks (AI context) ...... markdown files on disk
+├── Watchdog heartbeat ......... URL only
+├── Prometheus metrics ......... in-memory counters
+└── Webhook auth ............... env var only
+
+Tier 2 (requires DB_PATH)
+├── Alert logging
+├── Dedup L2 (cross-worker)
+├── Rate limiting .............. WEBHOOK_RATE_LIMIT
+├── Per-service cooldown ....... COOLDOWN_SECONDS
+├── Severity escalation ........ ESCALATION_THRESHOLD
+├── Dead letter queue .......... DLQ_MAX_RETRIES
+├── Incidents + correlation .... topology file + DB
+├── Pulse stats ................ predictive mode + DB
+└── Housekeeper
+
+Tier 3 (requires DB_PATH + UI_PASSWORD)
+├── /api/* REST endpoints
+├── Session auth (SQLite-backed)
+├── SSE real-time stream
+└── React SPA dashboard
+```
 
 ---
 
@@ -232,14 +316,14 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 
 | Variable | Default | Description |
 |---|---|---|
-| `SENTINEL_MODE` | `predictive` | `minimal` — parse and dispatch, no AI call · `reactive` — AI insight per alert, no history · `predictive` — AI insight + recent alert history injected into prompt |
+| `SENTINEL_MODE` | `predictive` | `minimal` — parse and dispatch, no AI call · `reactive` — AI insight per alert, no history · `predictive` — AI insight + recent alert history injected into prompt (history requires DB) |
 | `SENTINEL_CONTEXT` | — | Describe your infrastructure once — used in every AI prompt for more specific analysis. E.g. `"3-node Proxmox cluster, nginx on node2, TrueNAS on node3, all on 192.168.1.0/24"` |
 | `SENTINEL_CONTEXT_FILE` | `/data/context.md` | Path to a context file (alternative to `SENTINEL_CONTEXT` env var). Mount via Docker volume for multi-line descriptions. Env var takes priority if both are set. |
-| `ESCALATION_THRESHOLD` | `0` | Auto-escalate warning→critical after N warnings for the same service within `ESCALATION_WINDOW`. `0` disables. |
+| `ESCALATION_THRESHOLD` | `0` | Auto-escalate warning→critical after N warnings for the same service within `ESCALATION_WINDOW`. `0` disables. **Requires DB.** |
 | `ESCALATION_WINDOW` | `3600` | Time window in seconds for escalation counting. Default: 1 hour. |
 | `RUNBOOK_DIR` | `/data/runbooks` | Directory containing per-service runbook files. Create `nginx.md`, `postgres.md`, etc. — matched case-insensitively against the service name. Content is injected into the AI prompt for specific remediation. Also the default location for `topology.yaml`. |
 | `TOPOLOGY_FILE` | `{RUNBOOK_DIR}/topology.yaml` | Path to a YAML service dependency graph. When present, the AI considers upstream/downstream impact for cascade failure analysis. See [Topology Mapping](#topology-mapping). |
-| `COOLDOWN_SECONDS` | `0` | Per-service notification cooldown. After notifying for a service, suppress further notifications for that service for N seconds regardless of message content. `0` disables. Different from dedup (exact match only). |
+| `COOLDOWN_SECONDS` | `0` | Per-service notification cooldown. After notifying for a service, suppress further notifications for that service for N seconds regardless of message content. `0` disables. Different from dedup (exact match only). **Requires DB.** |
 
 ### Storm Intelligence
 
@@ -260,9 +344,12 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | Variable | Default | Description |
 |---|---|---|
 | `WEBHOOK_SECRET` | — | Shared secret for `X-Webhook-Token` header auth. Recommended for internet-facing deployments. Generate: `openssl rand -hex 32` |
-| `WEBHOOK_RATE_LIMIT` | `0` | Max requests per `WEBHOOK_RATE_WINDOW` seconds. `0` disables. |
+| `WEBHOOK_RATE_LIMIT` | `0` | Max requests per `WEBHOOK_RATE_WINDOW` seconds. `0` disables. **Requires DB.** |
 | `WEBHOOK_RATE_WINDOW` | `60` | Sliding window size in seconds. |
-| `DEDUP_TTL_SECONDS` | `60` | Suppress identical alerts within this window. `0` disables. |
+| `DEDUP_TTL_SECONDS` | `60` | Suppress identical alerts within this window. `0` disables. L1 (in-memory) always works. L2 (cross-worker) **requires DB.** |
+| `DB_PATH` | `/data/sentinel.db` | Path to SQLite database. Set to a writable path to enable all Tier 2 features. |
+| `DB_DISABLED` | `false` | Set to `true` to explicitly disable the DB and all Tier 2/3 features at once. |
+| `UI_PASSWORD` | — | Set to enable the Web UI (Tier 3). **Requires DB.** |
 
 ### Performance Tuning
 
@@ -508,17 +595,39 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - Resolution verification — on recovery, AI summarizes the preceding outage with a dedicated prompt
 - Watchdog heartbeat (`WATCHDOG_URL`) — periodic ping to external monitoring; alerts if Sentinel hangs
 
-**v1.4 — in progress:**
+**v1.4 — complete:**
 - Topology mapping — YAML dependency graph (`topology.yaml`) injected into AI for cascade failure analysis
 - Storm intelligence — buffer correlated alerts within a time window, single batch AI analysis + combined notification (`STORM_WINDOW`, `STORM_THRESHOLD`)
+- Shared resources in topology — correlate failures to common hardware (storage arrays, network segments)
+- OpenAI-compatible universal connector — one config for OpenAI, Grok, Groq, Ollama, LM Studio, llama.cpp, vLLM
+- AI provider failover (`AI_PROVIDER_FALLBACK`) — automatic fallback when primary provider fails
 
-**Planned (v1.4 continued):**
-- Morning brief — scheduled AI summary of overnight quiet-hours activity, dispatched at a configured time
-- Web UI — read-only dashboard on existing SQLite + WAL foundation: recent alerts, AI insights, service health timeline, pulse stats. Comes before human feedback so interactions can be built into the UI
-- Human feedback loop — platform buttons (ignore 30m, investigate, fix), emoji reactions, and text responses stored in SQLite and injected into future AI prompts for self-learning
-- Reverse triage — opt-in context scripts per service (e.g. `ssh host "top -bn1"`), shell output injected into the AI prompt before analysis. Same opt-in pattern as all other features
+**v1.5 — complete:**
+- State persistence — SQLite-backed L2 dedup cache (cross-worker, survives restarts)
+- Dead letter queue — retry failed notifications with exponential backoff (5min/15min/45min)
+- Prometheus metrics endpoint (`GET /metrics`) — thread-safe counters, no external deps
+- Universal secret redaction — JWTs, inline creds, emails redacted across all 11 parsers
+- AI backpressure — `threading.Semaphore` limits concurrent AI calls, prevents thread starvation
+- Priority storm buffer — critical alerts processed first when buffer flushes below threshold
+- Configurable prompt budget (`MAX_PROMPT_CHARS`) — cap token spend per AI call
 
-**Planned (parsers + platforms):**
+**v2.0 — complete:**
+- Schema versioning — `_MIGRATIONS` list applies incremental DDL on startup
+- Incident engine — group related alerts, track lifecycle (open → resolved), first cause detection
+- Correlation engine — topology-based alert linking (structural, not AI-inferred)
+- Storm-to-incident bridge — storm flushes create incidents and link all buffered alerts
+- Web UI — React SPA (Vite + Tailwind CSS) with real-time SSE, session auth, incident timeline, topology view
+- SQLite-backed sessions — cross-worker session persistence for multi-process Gunicorn
+- Feature modularity — every feature is truly opt-in across three tiers (stateless / DB / UI)
+- `DB_DISABLED=true` — one switch disables all DB-dependent features
+- Transparent startup logging — warns about every configured feature that's inactive without DB
+- Accurate dispatch counting — unconfigured platforms skipped, not counted as successes
+- 873 tests covering all configurations including worst-case scenarios
+
+**Planned:**
+- Morning brief — scheduled AI summary of overnight quiet-hours activity
+- Human feedback loop — emoji reactions and text responses for AI self-learning
+- Reverse triage — opt-in context scripts per service for deeper AI analysis
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
 - Teams, Pushover, PagerDuty notification targets
 

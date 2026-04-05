@@ -1,0 +1,30 @@
+# Example Service Runbook
+
+Filename convention: `<service_name>.md` — matched case-insensitively.
+Non-alphanumeric chars in the service name become underscores.
+  e.g. "nginx" -> nginx.md, "my-redis" -> my_redis.md
+
+Max 1500 characters — keep it concise. The AI appends this to its prompt.
+
+---
+
+## Common Failures
+
+- **Container won't start**: Check `docker logs <container>` for crash loops.
+  Verify the image exists: `docker images | grep <service>`.
+- **Port conflict**: Another service may have grabbed the port.
+  Check: `ss -tlnp | grep <port>`.
+- **Out of memory**: Container OOM killed.
+  Check: `docker inspect <container> | grep OOMKilled`.
+
+## Recovery Steps
+
+1. Restart the container: `docker restart <container>`
+2. If restart fails, check disk space: `df -h /var/lib/docker`
+3. Check Docker daemon: `systemctl status docker`
+4. Full recreate: `docker compose up -d --force-recreate <service>`
+
+## Escalation
+
+- If Docker daemon itself is down, all containers are affected.
+- Check host-level issues: `dmesg | tail -50` for kernel OOM or disk errors.

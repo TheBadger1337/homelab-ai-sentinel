@@ -17,7 +17,7 @@ Failure policy: returns None on any DB error. Callers treat None as
 import logging
 import time
 
-from .alert_db import _get_conn
+from .alert_db import _get_conn, db_available
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,8 @@ def get_pulse(service: str) -> dict | None:
 
     Returns None if the service has no alert history or on DB error.
     """
+    if not db_available():
+        return None
     try:
         conn = _get_conn()
         now = time.time()

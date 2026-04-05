@@ -1,0 +1,325 @@
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────────────────────────────────
+   Sentinel Design System — CSS Custom Properties
+
+   Design principles applied:
+   - ui-ux-pro-max: accessibility > interaction > performance > style
+   - frontend-design: distinctive aesthetic, NOT generic AI slop
+   - Aesthetic: Industrial observability — control room meets dark cockpit
+   - Typography: DM Sans (geometric humanist) + DM Mono (monospace pair)
+   - No external font loading — self-hosted in Docker image
+
+   All colors use semantic tokens. Themes override at :root level.
+   ────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-raised: var(--color-surface-raised);
+  --color-border: var(--color-border);
+  --color-text: var(--color-text);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-primary: var(--color-primary);
+}
+
+/* ── Dark theme (default) — deep charcoal, cyan/blue accents ── */
+:root,
+[data-theme="dark"] {
+  --color-bg: #0b0d14;
+  --color-surface: #12151f;
+  --color-surface-raised: #1a1e2c;
+  --color-surface-overlay: #222738;
+  --color-border: #262c40;
+  --color-border-subtle: #1d2235;
+  --color-text: #e2e4ec;
+  --color-text-secondary: #8b90a5;
+  --color-text-muted: #585e78;
+  --color-primary: #38bdf8;
+  --color-primary-hover: #7dd3fc;
+  --color-primary-muted: #0c2d4a;
+
+  /* Severity — high-contrast signal colors */
+  --severity-critical: #f43f5e;
+  --severity-critical-bg: rgba(244, 63, 94, 0.1);
+  --severity-warning: #f59e0b;
+  --severity-warning-bg: rgba(245, 158, 11, 0.1);
+  --severity-info: #38bdf8;
+  --severity-info-bg: rgba(56, 189, 248, 0.1);
+  --severity-resolved: #22c55e;
+  --severity-resolved-bg: rgba(34, 197, 94, 0.1);
+
+  /* Lifecycle tokens */
+  --lifecycle-emerging: #a78bfa;
+  --lifecycle-active: #f43f5e;
+  --lifecycle-stabilizing: #f59e0b;
+  --lifecycle-resolved: #22c55e;
+
+  /* Focus ring — 2-4px visible (accessibility priority 1) */
+  --focus-ring: rgba(56, 189, 248, 0.5);
+
+  /* Atmospheric glow — subtle radial for depth */
+  --glow-primary: radial-gradient(ellipse at 50% 0%, rgba(56, 189, 248, 0.04), transparent 70%);
+  --glow-critical: radial-gradient(ellipse at 50% 0%, rgba(244, 63, 94, 0.06), transparent 60%);
+
+  color-scheme: dark;
+}
+
+/* ── Light theme — warm paper, dark ink ── */
+[data-theme="light"] {
+  --color-bg: #fafaf9;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f5f5f4;
+  --color-surface-overlay: #e7e5e4;
+  --color-border: #d6d3d1;
+  --color-border-subtle: #e7e5e4;
+  --color-text: #1c1917;
+  --color-text-secondary: #57534e;
+  --color-text-muted: #a8a29e;
+  --color-primary: #0284c7;
+  --color-primary-hover: #0369a1;
+  --color-primary-muted: #e0f2fe;
+
+  --severity-critical: #dc2626;
+  --severity-critical-bg: rgba(220, 38, 38, 0.06);
+  --severity-warning: #d97706;
+  --severity-warning-bg: rgba(217, 119, 6, 0.06);
+  --severity-info: #0284c7;
+  --severity-info-bg: rgba(2, 132, 199, 0.06);
+  --severity-resolved: #16a34a;
+  --severity-resolved-bg: rgba(22, 163, 74, 0.06);
+
+  --lifecycle-emerging: #7c3aed;
+  --lifecycle-active: #dc2626;
+  --lifecycle-stabilizing: #d97706;
+  --lifecycle-resolved: #16a34a;
+
+  --focus-ring: rgba(2, 132, 199, 0.4);
+  --glow-primary: none;
+  --glow-critical: none;
+
+  color-scheme: light;
+}
+
+/* ── Midnight theme — true black OLED, neon accents ── */
+[data-theme="midnight"] {
+  --color-bg: #000000;
+  --color-surface: #080810;
+  --color-surface-raised: #0f0f1a;
+  --color-surface-overlay: #161624;
+  --color-border: #1a1a30;
+  --color-border-subtle: #121220;
+  --color-text: #ededf4;
+  --color-text-secondary: #8080a0;
+  --color-text-muted: #4a4a68;
+  --color-primary: #818cf8;
+  --color-primary-hover: #a5b4fc;
+  --color-primary-muted: #1e1b4b;
+
+  --severity-critical: #fb7185;
+  --severity-critical-bg: rgba(251, 113, 133, 0.08);
+  --severity-warning: #fbbf24;
+  --severity-warning-bg: rgba(251, 191, 36, 0.08);
+  --severity-info: #818cf8;
+  --severity-info-bg: rgba(129, 140, 248, 0.08);
+  --severity-resolved: #4ade80;
+  --severity-resolved-bg: rgba(74, 222, 128, 0.08);
+
+  --lifecycle-emerging: #c4b5fd;
+  --lifecycle-active: #fb7185;
+  --lifecycle-stabilizing: #fbbf24;
+  --lifecycle-resolved: #4ade80;
+
+  --focus-ring: rgba(129, 140, 248, 0.5);
+  --glow-primary: radial-gradient(ellipse at 50% 0%, rgba(129, 140, 248, 0.05), transparent 70%);
+  --glow-critical: radial-gradient(ellipse at 50% 0%, rgba(251, 113, 133, 0.06), transparent 60%);
+
+  color-scheme: dark;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Base styles
+   ────────────────────────────────────────────────────────────────────── */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  /* DM Sans — geometric humanist, distinctive but readable at all sizes.
+     Fallback chain for when fonts aren't self-hosted (dev mode). */
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Tabular figures — prevents layout shift in numeric data */
+.font-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.font-mono {
+  font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
+}
+
+/* ── Focus styles (accessibility priority 1: contrast 4.5:1) ── */
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── Skip to content (accessibility) ── */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 100;
+  padding: 8px 16px;
+  background: var(--color-primary);
+  color: white;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+.skip-link:focus {
+  top: 16px;
+}
+
+/* ── Severity accent bars (left border — 3px signal stripe) ── */
+.severity-bar-critical { border-left: 3px solid var(--severity-critical); }
+.severity-bar-warning  { border-left: 3px solid var(--severity-warning); }
+.severity-bar-info     { border-left: 3px solid var(--severity-info); }
+.severity-bar-resolved { border-left: 3px solid var(--severity-resolved); }
+
+/* ── Atmospheric glow on cards — subtle radial gradient at top ── */
+.card-glow {
+  background-image: var(--glow-primary);
+}
+.card-glow-critical {
+  background-image: var(--glow-critical);
+}
+
+/* ── Pulsing dot — active incidents ── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+.pulse-dot {
+  animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* ── Skeleton shimmer (progressive-loading: shimmer, not spinners) ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface) 25%,
+    var(--color-surface-raised) 50%,
+    var(--color-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+/* ── Slide-in from top (SSE new alerts — spring easing) ── */
+@keyframes slide-in-top {
+  from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-slide-in {
+  animation: slide-in-top 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Staggered entrance (timeline items — 30ms per item) ── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fade-up 0.2s ease-out both;
+}
+
+/* ── Scale feedback on press (0.97 scale, 100ms) ── */
+.active-scale {
+  transition: transform 0.1s ease;
+}
+.active-scale:active {
+  transform: scale(0.97);
+}
+
+/* ── Crossfade for state transitions ── */
+@keyframes crossfade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-crossfade {
+  animation: crossfade-in 0.15s ease;
+}
+
+/* ── Reduced motion — respect OS preference globally ── */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot,
+  .skeleton,
+  .animate-slide-in,
+  .animate-fade-up,
+  .animate-crossfade { animation: none; }
+  .active-scale:active { transform: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
+
+/* ── Noise texture overlay (subtle grain for depth) ── */
+.noise-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Grid dot pattern (topology background) ── */
+.grid-dots {
+  background-image: radial-gradient(circle, var(--color-border) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ── React Flow theme overrides ── */
+.react-flow__edge-path {
+  stroke: var(--color-border) !important;
+}
+.react-flow__arrowhead polyline {
+  fill: var(--color-text-muted);
+  stroke: var(--color-text-muted);
+}
+.react-flow__handle {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.react-flow__node:hover .react-flow__handle {
+  opacity: 1;
+}
+/* MiniMap node styling */
+.react-flow__minimap-mask {
+  fill: var(--color-bg);
+  opacity: 0.85;
+}

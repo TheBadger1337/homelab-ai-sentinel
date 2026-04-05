@@ -25,20 +25,25 @@ worker. This parallels the per-worker dedup cache — the goal is noise
 reduction, not perfect correlation.
 """
 
+import atexit
+import json
 import logging
 import threading
 import time
 from typing import Any
 
-from .alert_db import close_thread_conn, get_recent_alerts, log_alert
+from .alert_db import clear_storm_buffer, close_thread_conn, create_incident, enqueue_dead_letter, get_recent_alerts, link_alert_to_incident, load_storm_entries, log_alert, log_alert_returning_id, persist_storm_entry
 from .alert_parser import NormalizedAlert
-from .llm_client import call_provider, get_ai_insight
+from .llm_client import call_provider, get_ai_insight, _xml_escape
 from .pulse import format_pulse
 from .topology import format_topology
 from .utils import _env_int, _sentinel_mode
 from . import notify
 
 logger = logging.getLogger(__name__)
+
+# Severity priority for storm buffer flush ordering (lower = processed first)
+_SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2, "unknown": 3}
 
 # ---------------------------------------------------------------------------
 # Storm prompt template
@@ -63,6 +68,7 @@ Consider:
 
 Respond with this exact JSON schema — nothing else:
 {{
+  "confidence": <1-10 integer — how confident you are in this diagnosis, where 1 = pure guess, 10 = certain>,
   "insight": "<2-4 sentence analysis of the correlated failure: likely root cause, cascade path, and overall impact>",
   "suggested_actions": [
     "<action 1 — address the root cause first>",
@@ -79,7 +85,7 @@ Respond with this exact JSON schema — nothing else:
 
 class BufferedAlert:
     """An alert plus the context gathered at webhook time."""
-    __slots__ = ("alert", "pulse", "runbook", "topology", "ts")
+    __slots__ = ("alert", "pulse", "runbook", "topology", "ts", "db_id")
 
     def __init__(
         self,
@@ -87,12 +93,14 @@ class BufferedAlert:
         pulse: dict | None,
         runbook: str,
         topology: str,
+        db_id: int | None = None,
     ):
         self.alert = alert
         self.pulse = pulse
         self.runbook = runbook
         self.topology = topology
         self.ts = time.time()
+        self.db_id = db_id  # row ID in storm_buffer table (None if DB unavailable)
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +115,8 @@ def build_storm_prompt(entries: list[BufferedAlert]) -> str:
     for i, entry in enumerate(entries, 1):
         a = entry.alert
         line = (
-            f"  Alert {i}: {a.service_name} — {a.status.upper()} "
-            f"({a.severity}) — {a.message[:200]}"
+            f"  Alert {i}: {_xml_escape(a.service_name)} — {_xml_escape(a.status.upper())} "
+            f"({_xml_escape(a.severity)}) — {_xml_escape(a.message[:200])}"
         )
         # Append pulse summary if available
         pulse_str = format_pulse(entry.pulse)
@@ -138,14 +146,25 @@ def build_storm_prompt(entries: list[BufferedAlert]) -> str:
 # ---------------------------------------------------------------------------
 
 def _process_storm(entries: list[BufferedAlert]) -> None:
-    """Combined AI call + single notification for a correlated alert storm."""
+    """Combined AI call + single notification for a correlated alert storm.
+
+    Creates an incident for the storm and links all buffered alerts to it.
+    The storm's combined AI analysis becomes the incident's root_cause.
+    """
     mode = _sentinel_mode()
 
     if mode == "minimal":
-        # No AI — dispatch each alert individually
+        # No AI — dispatch each alert individually, still create incident
+        incident_id = create_incident(
+            f"storm:{len(entries)}-services",
+            "critical",
+            storm_id=id(entries),  # unique per flush
+        )
         for entry in entries:
             notify.dispatch(entry.alert, {})
-            log_alert(entry.alert, None, notified=True)
+            alert_id = log_alert_returning_id(entry.alert, None, notified=True)
+            if alert_id is not None and incident_id is not None:
+                link_alert_to_incident(alert_id, incident_id)
         return
 
     prompt = build_storm_prompt(entries)
@@ -166,11 +185,25 @@ def _process_storm(entries: list[BufferedAlert]) -> None:
         },
     )
 
-    notify.dispatch(storm_alert, ai)
+    dispatch_result = notify.dispatch(storm_alert, ai)
 
-    # Log each individual alert with the storm AI result
+    # DLQ: if all platforms failed, enqueue the storm alert for retry
+    if dispatch_result.all_failed:
+        enqueue_dead_letter(storm_alert, ai, "; ".join(dispatch_result.errors))
+        logger.warning("Storm: all notification platforms failed — enqueued in DLQ")
+
+    # Create a storm incident and link all buffered alerts
+    incident_id = create_incident(
+        f"storm:{', '.join(services[:5])}",
+        "critical",
+        storm_id=id(entries),
+    )
+
+    actually_notified = not dispatch_result.all_failed
     for entry in entries:
-        log_alert(entry.alert, ai, notified=True)
+        alert_id = log_alert_returning_id(entry.alert, ai, notified=actually_notified)
+        if alert_id is not None and incident_id is not None:
+            link_alert_to_incident(alert_id, incident_id)
 
 
 def _process_individual(entries: list[BufferedAlert]) -> None:
@@ -191,8 +224,11 @@ def _process_individual(entries: list[BufferedAlert]) -> None:
                     runbook=entry.runbook,
                     topology=entry.topology,
                 )
-            notify.dispatch(alert, ai)
-            log_alert(alert, ai if ai else None, notified=True)
+            dispatch_result = notify.dispatch(alert, ai)
+            actually_notified = not dispatch_result.all_failed
+            if dispatch_result.all_failed:
+                enqueue_dead_letter(alert, ai if ai else None, "; ".join(dispatch_result.errors))
+            log_alert(alert, ai if ai else None, notified=actually_notified)
         except Exception:
             logger.exception("Failed to process buffered alert: %s", entry.alert.service_name)
             # Log even on failure so the alert isn't lost
@@ -223,6 +259,18 @@ class StormBuffer:
         if window <= 0:
             return False
 
+        # Persist to DB so the entry survives worker recycling / container restart
+        alert_json = json.dumps({
+            "source": entry.alert.source,
+            "status": entry.alert.status,
+            "severity": entry.alert.severity,
+            "service_name": entry.alert.service_name,
+            "message": entry.alert.message,
+            "details": entry.alert.details,
+        })
+        pulse_json = json.dumps(entry.pulse) if entry.pulse else None
+        entry.db_id = persist_storm_entry(alert_json, pulse_json, entry.runbook, entry.topology)
+
         with self._lock:
             self._buffer.append(entry)
             if self._timer is None:
@@ -250,6 +298,9 @@ class StormBuffer:
         if not entries:
             return
 
+        # Collect DB row IDs so we can clear them after processing
+        db_ids = [e.db_id for e in entries if e.db_id is not None]
+
         threshold = _env_int("STORM_THRESHOLD", 3)
         is_storm = len(entries) >= threshold
 
@@ -266,17 +317,25 @@ class StormBuffer:
                     try:
                         _process_individual(entries)
                     except Exception:
-                        logger.exception("Individual fallback also failed")
+                        logger.exception("Individual fallback also failed — DLQ'ing all entries")
+                        for entry in entries:
+                            enqueue_dead_letter(entry.alert, None, "storm double-failure")
+                            log_alert(entry.alert, None, notified=False)
             else:
                 logger.info(
                     "Buffer flushed: %d alert(s) below storm threshold %d — individual processing",
                     len(entries), threshold,
                 )
+                # Sort by severity so critical alerts are processed first
+                entries.sort(key=lambda e: _SEVERITY_ORDER.get(e.alert.severity, 3))
                 try:
                     _process_individual(entries)
                 except Exception:
                     logger.exception("Individual processing failed")
         finally:
+            # Clear persisted entries from DB — they've been processed (or DLQ'd)
+            if db_ids:
+                clear_storm_buffer(db_ids)
             # Timer threads are short-lived — close the DB connection so it
             # doesn't leak. Gunicorn worker threads keep theirs open for the
             # process lifetime; this only affects the ephemeral Timer thread.
@@ -313,3 +372,67 @@ _buffer = StormBuffer()
 def get_storm_buffer() -> StormBuffer:
     """Return the module-level storm buffer."""
     return _buffer
+
+
+def recover_orphaned_entries() -> None:
+    """Process any storm buffer entries left in the DB from a previous crash.
+
+    Called once at startup from create_app(). If the previous worker died
+    mid-storm-window, these entries would be lost without this recovery.
+    """
+    rows = load_storm_entries()
+    if not rows:
+        return
+
+    logger.info("Storm recovery: found %d orphaned entries from previous run", len(rows))
+    entries = []
+    row_ids = []
+    for row in rows:
+        try:
+            alert_data = json.loads(row["alert_json"])
+            alert = NormalizedAlert(
+                source=alert_data["source"],
+                status=alert_data["status"],
+                severity=alert_data["severity"],
+                service_name=alert_data["service_name"],
+                message=alert_data["message"],
+                details=alert_data.get("details"),
+            )
+            pulse = json.loads(row["pulse_json"]) if row["pulse_json"] else None
+            entries.append(BufferedAlert(
+                alert=alert,
+                pulse=pulse,
+                runbook=row["runbook"] or "",
+                topology=row["topology"] or "",
+                db_id=row["id"],
+            ))
+            row_ids.append(row["id"])
+        except (json.JSONDecodeError, KeyError) as exc:
+            logger.warning("Storm recovery: skipping corrupt entry %s: %s", row.get("id"), type(exc).__name__)
+            row_ids.append(row["id"])
+
+    if entries:
+        try:
+            _process_individual(entries)
+        except Exception:
+            logger.exception("Storm recovery: processing failed — DLQ'ing all entries")
+            for entry in entries:
+                enqueue_dead_letter(entry.alert, None, "storm recovery failure")
+                log_alert(entry.alert, None, notified=False)
+
+    # Clear all recovered entries from DB
+    if row_ids:
+        clear_storm_buffer(row_ids)
+    logger.info("Storm recovery: processed %d orphaned entries", len(entries))
+
+
+# Register atexit handler to flush the buffer on clean shutdown
+def _atexit_flush() -> None:
+    """Flush the storm buffer on process exit so buffered alerts aren't lost."""
+    buf = get_storm_buffer()
+    if buf.pending_count() > 0:
+        logger.info("Shutdown: flushing %d buffered storm alerts", buf.pending_count())
+        buf.flush_now()
+
+
+atexit.register(_atexit_flush)

@@ -6,6 +6,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 from .alert_db import init_db
 from .api import api_bp
+from .mcp import mcp_bp
 from .config_validator import validate_config
 from .housekeeper import start_housekeeper
 from .watchdog import start_watchdog
@@ -77,6 +78,7 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
     app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB
     app.register_blueprint(webhook_bp)
+    app.register_blueprint(mcp_bp)
     init_db()
 
     start_watchdog()

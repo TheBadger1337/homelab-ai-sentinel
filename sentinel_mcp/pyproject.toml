@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "homelab-ai-sentinel-mcp"
+version = "1.0.0"
+description = "MCP server for Homelab AI Sentinel — query alerts and incidents from Claude, ChatGPT, and any MCP-compatible AI assistant"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "httpx>=0.27.0",
+]
+
+[project.scripts]
+sentinel-mcp = "sentinel_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/thebadger1337/homelab-ai-sentinel"
+Repository = "https://github.com/thebadger1337/homelab-ai-sentinel"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sentinel_mcp"]

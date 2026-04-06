@@ -686,6 +686,92 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 
 ---
 
+## Frequently Asked Questions
+
+### What is Homelab AI Sentinel?
+
+Homelab AI Sentinel is an AI-powered webhook receiver for homelab monitoring. Your monitoring tool (Uptime Kuma, Grafana, Prometheus, Zabbix, etc.) sends an alert webhook. Sentinel parses it, sends the alert data to an AI model, and forwards an enriched notification — with a plain-English diagnosis and specific commands to run first — to your chosen notification platform (Discord, Slack, Telegram, etc.).
+
+### How is Sentinel different from just using a Discord webhook directly?
+
+A raw webhook posts a JSON blob or a basic "service X is down" message with no context. Sentinel adds: an AI-generated diagnosis of the probable cause, specific remediation commands tailored to your service, cascade failure analysis (if topology is configured), and incident grouping so a five-service outage creates one incident instead of five separate alerts. The raw webhook tells you something is down. Sentinel tells you why and what to check first.
+
+### Does Sentinel have access to my servers?
+
+No. Sentinel is stateless and read-only. It receives JSON payloads sent by your monitoring tool and forwards text to your notification platforms. It cannot SSH into your servers, run commands, read your filesystem, or take any action on your infrastructure. The AI model sees only the alert payload you send it.
+
+### What AI providers does Sentinel support?
+
+Gemini 2.5 Flash (default, free tier), Anthropic Claude (Haiku, Sonnet, Opus), OpenAI GPT-4o and GPT-4o-mini, Groq (fast free tier), Mistral, Together AI, Ollama (local, fully air-gapped), LM Studio (local), any OpenAI-compatible endpoint including llama.cpp and vLLM. Switch providers by setting `AI_PROVIDER` in `.secrets.env`. No code changes required.
+
+### Can I run Sentinel fully locally with no data leaving my machine?
+
+Yes. Set `AI_PROVIDER=ollama` and `OLLAMA_BASE_URL=http://your-ollama-host:11434` and `OLLAMA_MODEL=llama3.2` (or any pulled model). Alert data is processed entirely on your hardware. No external API calls. Combine with `DB_DISABLED=true` for a fully stateless local pipeline.
+
+### What monitoring tools does Sentinel work with?
+
+Uptime Kuma (all versions), Grafana (alertmanager-style webhooks), Prometheus Alertmanager, Healthchecks.io, Netdata, Zabbix, Checkmk, Glances, Docker Events (via webhook relay), WUD (What's Up Docker), and any tool that can POST JSON to an HTTP endpoint (generic parser auto-detects format). New parsers can be added in `app/alert_parser.py`.
+
+### How is Sentinel different from Alertmanager?
+
+Alertmanager is a routing and grouping layer for Prometheus alerts — it silences, inhibits, and routes alerts to receivers. Sentinel is an enrichment layer that sits downstream of any monitoring tool: it adds AI diagnosis, runbook injection, topology-aware cascade analysis, and incident tracking. They serve different purposes and can be used together — point an Alertmanager webhook receiver at Sentinel.
+
+### Do I need a paid AI subscription?
+
+No. Gemini 2.5 Flash has a free tier (10 RPM, 500 req/day as of v2.0) that is sufficient for most homelab alert volumes. Groq also has a generous free tier (~30 RPM). Ollama and LM Studio are free if you run your own hardware.
+
+### What happens if the AI API is unavailable or rate-limited?
+
+Sentinel degrades gracefully. If the AI call fails, returns a 429, or times out, the alert is still dispatched to all configured notification platforms — without the AI insight section. You get the raw alert data plus a brief note that AI analysis was unavailable. The alert is never silently dropped because of an AI failure.
+
+### How does deduplication work?
+
+Sentinel has two dedup layers. L1 is an in-memory cache (per-worker, lost on restart) — fast, zero disk I/O. L2 is a SQLite-backed cache (shared across workers, survives restarts) — enabled when `DB_PATH` is set. Dedup is keyed on service name + status + source. The TTL is configurable (`DEDUP_TTL_SECONDS`, default: 300s). An alert that fires repeatedly every 30 seconds during an outage fires once, not dozens of times.
+
+### Can Sentinel group related alerts into a single notification?
+
+Yes, two ways. **Storm mode** (`STORM_WINDOW`, `STORM_THRESHOLD`) buffers alerts that arrive within a short time window and sends one combined AI analysis when the window closes. **Incident engine** (requires DB) groups structurally related alerts (based on topology dependencies) into incidents with a lifecycle — open, correlated, resolved — and generates a resolution summary when all linked alerts recover.
+
+### What is topology mapping?
+
+Topology mapping lets you define a service dependency graph in a YAML file. When nginx goes down and nextcloud also starts alerting, Sentinel knows nextcloud depends on nginx and includes cascade analysis in the AI prompt. The AI can then reason: "nextcloud failure is likely caused by the upstream nginx outage" rather than treating each alert independently. Configured via `TOPOLOGY_FILE` pointing to a `topology.yaml`.
+
+### Can I inject custom context into the AI prompt?
+
+Yes. `SENTINEL_CONTEXT` is a free-text string injected into every AI prompt. Use it to describe your infrastructure: hardware specs, OS, key services, network layout. This turns generic AI responses into responses that know your specific environment. Example: `SENTINEL_CONTEXT=Ubuntu 22.04, 4-node Docker swarm, nginx reverse proxy, Postgres on node1, Redis on node2`.
+
+### What are runbooks and how do I use them?
+
+Runbooks are markdown files you write that describe how to handle specific service failures. Set `RUNBOOK_DIR` to a folder and create files named after your services (e.g. `nginx.md`, `postgres.md`). When an alert fires for that service, Sentinel appends the matching runbook content to the AI prompt — so the AI has your specific recovery steps, not just generic advice.
+
+### Does Sentinel work with multiple notification platforms simultaneously?
+
+Yes. Configure any combination of the 10 supported platforms: Discord, Slack, Telegram, Ntfy, Email, WhatsApp (Cloud API), Signal (signal-cli), Gotify, Matrix, and iMessage (macOS only). Each platform is independent and opt-in. If one platform fails to deliver, the others are not affected, and the failed delivery is queued in the dead letter queue for retry.
+
+### What is the dead letter queue?
+
+When a notification dispatch fails (network error, platform API down, rate limited), Sentinel stores the failed delivery in a SQLite `dead_letters` table. A background housekeeper retries at 5 minutes, 15 minutes, and 45 minutes. After three failures, the entry is marked permanently failed and preserved for inspection. This prevents alert loss during brief platform outages without silent retry loops.
+
+### How do I set up HMAC authentication?
+
+Set `WEBHOOK_SECRET` in `.secrets.env`. Sentinel will then require all incoming webhooks to include a valid HMAC-SHA256 signature in the `X-Sentinel-Signature` header. Uptime Kuma supports this natively (set the secret in the notification settings). For other tools, use a proxy or set the header manually. If `WEBHOOK_SECRET` is set, `/health` is also gated — pass the secret as `Authorization: Bearer <secret>`.
+
+### What does the web UI show?
+
+The web UI requires `DB_PATH` to be set. Once the DB is enabled, navigate to `http://your-host:5000/` in a browser — if no password has been configured yet, Sentinel shows a first-run setup screen where you can set the password directly in the UI without touching `.secrets.env`. You can also pre-configure it by setting `UI_PASSWORD` in `.secrets.env` before starting the container.
+
+The dashboard is a React SPA served from the Sentinel container with no external dependencies. It shows: live dashboard with alert and incident stats, incident timeline with linked alert history and AI summaries, full alert log with delete controls, interactive topology graph (if `TOPOLOGY_FILE` is set), and operator notes per alert/incident. Real-time updates via SSE — no polling, no page refresh needed.
+
+### Can I use Sentinel as an MCP server?
+
+Yes. The `sentinel_mcp/` directory in this repo contains an MCP server that wraps Sentinel's read API. Install it (`pip install homelab-ai-sentinel-mcp`), configure `SENTINEL_URL` and optionally `SENTINEL_TOKEN`, and add it to Claude Desktop or Claude Code. You can then ask Claude "what alerts fired overnight?" or "are there any open incidents?" directly in the chat interface. See `sentinel_mcp/README.md` for setup instructions.
+
+### Is Sentinel open source? Can I modify it?
+
+Yes. MIT license — use it, modify it, self-host it, and redistribute it. The only restriction is that the MIT license notice must be preserved. There is no telemetry, no phone-home, and no dependency on any Sentinel-hosted service. Premium setup guides are sold separately on Gumroad but are documentation, not code — the core software is fully functional without them.
+
+---
+
 ## Community
 
 - **GitHub Issues** — bug reports and feature requests

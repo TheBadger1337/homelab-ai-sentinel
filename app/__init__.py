@@ -197,8 +197,14 @@ def create_app() -> Flask:
             return jsonify({"error": "not found"}), 404
         index = static_dir / "index.html"
         rel = request.path.lstrip("/")
-        if rel and (static_dir / rel).is_file():
-            return send_from_directory(str(static_dir), rel)
+        if rel:
+            try:
+                target = (static_dir / rel).resolve()
+                target.relative_to(static_dir.resolve())  # raises ValueError if outside static_dir
+                if target.is_file():
+                    return send_from_directory(str(static_dir), rel)
+            except ValueError:
+                pass  # path traversal attempt — fall through to SPA fallback
         if index.is_file():
             return send_from_directory(str(static_dir), "index.html")
         return jsonify({"error": "not found"}), 404

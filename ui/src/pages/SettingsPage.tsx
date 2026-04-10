@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Download } from "lucide-react";
 import { Card } from "../components/Card";
 import { Skeleton } from "../components/Skeleton";
 import { getSettings } from "../lib/api";
@@ -103,6 +104,34 @@ export function SettingsPage() {
           <dt className="text-[var(--color-text-muted)]">Retention</dt>
           <dd className="font-tabular font-medium">{settings.retention_days as number} days</dd>
         </dl>
+      </Card>
+
+      {/* Feedback Export */}
+      <Card className="mb-4 p-4">
+        <h2 className="mb-1 text-sm font-medium text-[var(--color-text-secondary)]">
+          Feedback Export
+        </h2>
+        <p className="mb-3 text-xs text-[var(--color-text-muted)]">
+          Download operator-rated AI insights for offline analysis or local model fine-tuning.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="/api/feedback/export/jsonl"
+            download="sentinel_feedback.jsonl"
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-raised)] transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            JSONL (fine-tuning, up-rated)
+          </a>
+          <a
+            href="/api/feedback/export"
+            download="sentinel_feedback.json"
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-[var(--color-surface-raised)] transition-colors"
+          >
+            <Download className="h-3.5 w-3.5" />
+            JSON (all feedback)
+          </a>
+        </div>
       </Card>
 
       {/* Notification Platforms */}

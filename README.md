@@ -780,9 +780,36 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 **v2.6 — complete:**
 - RAG feedback export — `GET /api/feedback/export/jsonl` downloads operator-rated AI insights as JSONL in OpenAI/Ollama chat format for local model fine-tuning. Only `up`-rated records are included by default (confirmed good insights); pass `?rating=all` for everything. The JSON export (`/api/feedback/export`) gained a `?rating=` filter too.
 
-**Planned:**
-- Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
-- Teams, Pushover, PagerDuty notification targets
+**v2.7 — planned:**
+- Parser coverage: Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant
+- Notification targets: Teams, Pushover, PagerDuty
+- Smarter correlation: time-decay weighting on correlated incidents so old upstream incidents don't absorb unrelated new alerts
+
+**v2.8 — planned:**
+- Runbook generation — when no runbook exists for a service, AI generates a starter runbook from alert history and incident patterns; operator reviews and saves it to disk
+- Alert clustering — group semantically similar alerts from different services into a single AI call when storm mode is active; reduces token spend on correlated outages
+
+**v2.9 — planned:**
+- Anomaly detection — lightweight statistical baseline per service (alert frequency, severity distribution, time-of-day patterns); AI prompt is flagged when current alert deviates significantly from baseline
+- Feedback-loop fine-tuning CLI — `python -m sentinel.export_rag` wraps `GET /api/feedback/export/jsonl` for scripted Ollama `create` pipelines; includes a model validation step that sends a sample alert and checks the fine-tuned response quality
+
+---
+
+**v3.0 — contextual infrastructure integration:**
+
+The identity stays the same: Sentinel receives webhooks, enriches with AI, dispatches. v3.0 adds optional *read* access to your infrastructure so the AI has real evidence rather than inference.
+
+> Today the AI says: *"nginx is likely down due to resource exhaustion — check logs."*
+> With v3.0 it says: *"nginx OOM-killed at 512 MB limit (exit code 137), 14th restart in 2 hours. Last log line: `worker process exited on signal 9`. Your compose memory limit is likely too low for current traffic."*
+
+Planned scope:
+
+- `DOCKER_SOCKET=/var/run/docker.sock` — when an alert fires for a containerised service, Sentinel fetches the last 50 log lines, container restart count, exit code, and memory/CPU at crash time; injected as enrichment context into the AI prompt (highest-priority slot, same architecture as reverse triage)
+- `PROXMOX_URL` + `PROXMOX_API_TOKEN` — when a Proxmox-sourced alert fires, fetch node/VM/CT resource state at alert time; lets the AI distinguish "this VM is thrashing" from "the whole node is down"
+- Auto-topology from Docker labels — `SENTINEL_DEPENDS_ON=nginx,postgres` Compose label generates topology automatically; no `topology.yaml` required for container-native deployments
+- Container-aware synthetic shadowing — dead/exited containers trigger shadow alerts automatically without requiring an entry in `shadows.yaml`
+
+**Explicitly out of scope for v3.0:** Active HTTP probes, metric collection, scheduled polling. Those are what Uptime Kuma and Prometheus do. Sentinel does not replace your monitoring tool — it makes what your monitoring tool reports dramatically more actionable.
 
 ---
 

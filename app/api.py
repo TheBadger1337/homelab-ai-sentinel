@@ -793,9 +793,88 @@ def feedback_export():
 
     Returns a JSON array suitable for RAG ingestion or model fine-tuning.
     Each record contains alert metadata, AI insight, and operator rating+comment.
+
+    Query params:
+      rating=up|down|meh — filter to specific rating
     """
+    rating_filter = request.args.get("rating", "").strip().lower() or None
     records = export_feedback()
+    if rating_filter:
+        records = [r for r in records if r.get("rating") == rating_filter]
     return jsonify({"feedback": records, "count": len(records)})
+
+
+@api_bp.route("/feedback/export/jsonl", methods=["GET"])
+@require_ui_auth
+def feedback_export_jsonl():
+    """Export operator-rated feedback as JSONL for LLM fine-tuning.
+
+    Each line is a JSON object in chat message format compatible with
+    Ollama, LM Studio, and OpenAI fine-tune pipelines.
+
+    Only ``up``-rated records are exported by default (they represent
+    high-quality AI outputs the operator confirmed as correct). Pass
+    ``rating=down`` or ``rating=meh`` to export other sets, or
+    ``rating=all`` for everything.
+
+    The system prompt is injected so the fine-tuned model knows it is
+    operating as a homelab alert analyser.
+
+    Query params:
+      rating=up|down|meh|all — which ratings to include (default: up)
+    """
+    rating_filter = request.args.get("rating", "up").strip().lower()
+    if rating_filter == "all":
+        rating_filter = None
+
+    records = export_feedback()
+    if rating_filter:
+        records = [r for r in records if r.get("rating") == rating_filter]
+
+    system_prompt = (
+        "You are an AI assistant analysing homelab infrastructure alerts. "
+        "When given an alert, diagnose the probable cause, estimate a confidence "
+        "score from 1-10, and suggest specific remediation actions. "
+        "Respond in JSON with keys: confidence (int), insight (str), "
+        "suggested_actions (list[str])."
+    )
+
+    lines: list[str] = []
+    for rec in records:
+        insight = rec.get("insight") or ""
+        if not insight:
+            continue  # skip records with no AI output to learn from
+        user_content = (
+            f"Alert from {rec.get('source', 'unknown')} — "
+            f"service: {rec.get('service', 'unknown')}, "
+            f"status: {rec.get('status', 'unknown')}, "
+            f"severity: {rec.get('severity', 'unknown')}.\n"
+            f"Message: {rec.get('message', '')}"
+        )
+        # Reconstruct the JSON the AI should have produced
+        assistant_content = json.dumps({
+            "confidence": 8,  # operator-approved → high confidence
+            "insight": insight,
+            "suggested_actions": [],
+        })
+        entry = {
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+                {"role": "assistant", "content": assistant_content},
+            ]
+        }
+        lines.append(json.dumps(entry, ensure_ascii=False))
+
+    body = "\n".join(lines) + ("\n" if lines else "")
+    return Response(
+        body,
+        mimetype="application/x-ndjson",
+        headers={
+            "Content-Disposition": "attachment; filename=sentinel_feedback.jsonl",
+            "X-Record-Count": str(len(lines)),
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

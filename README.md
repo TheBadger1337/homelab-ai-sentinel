@@ -761,7 +761,7 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 
 **v2.1 — complete:**
 - Morning brief — scheduled AI digest of quiet-hours activity sent each morning (`MORNING_BRIEF_ENABLED`, `MORNING_BRIEF_TIME`); uses `QUIET_HOURS` window or falls back to the previous 8 hours; dispatched to all configured notification platforms as a synthetic alert; double-send-guarded via DB
-- Human feedback loop — thumbs-up / meh / thumbs-down ratings on AI insights from the web UI (`POST /api/alerts/<id>/feedback`); exportable dataset via `GET /api/feedback/export` for offline fine-tuning or prompt analysis
+- Human feedback loop — thumbs-up / meh / thumbs-down ratings on AI insights from the web UI (`POST /api/alerts/<id>/feedback`); exportable dataset via `GET /api/feedback/export` (JSON) or `GET /api/feedback/export/jsonl` (v2.6 — Ollama/OpenAI chat JSONL for fine-tuning) for offline analysis
 - Reverse triage — operator-configured diagnostic scripts run per service at alert time (`REVERSE_TRIAGE_<SERVICE>`); stdout injected as live context into the AI prompt; scripts run with a blank environment so no Sentinel secrets leak; output capped at 2000 chars, timeout configurable via `REVERSE_TRIAGE_TIMEOUT`
 
 **v2.2 — complete:**
@@ -776,6 +776,9 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 
 **v2.5 — complete:**
 - Synthetic shadowing — define expected heartbeat intervals per service in `shadows.yaml`. When a watched service stops sending webhooks for longer than its configured interval, Sentinel fires a synthetic alert through the normal notify + AI pipeline so the operator is paged even when the monitoring tool itself is silent. Uses the incidents table to avoid re-firing after an open incident is already created. `SHADOWS_FILE` and `SHADOW_CHECK_INTERVAL` env vars.
+
+**v2.6 — complete:**
+- RAG feedback export — `GET /api/feedback/export/jsonl` downloads operator-rated AI insights as JSONL in OpenAI/Ollama chat format for local model fine-tuning. Only `up`-rated records are included by default (confirmed good insights); pass `?rating=all` for everything. The JSON export (`/api/feedback/export`) gained a `?rating=` filter too.
 
 **Planned:**
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers

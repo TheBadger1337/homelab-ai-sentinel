@@ -388,6 +388,7 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `ESCALATION_WINDOW` | `3600` | Time window in seconds for escalation counting. Default: 1 hour. |
 | `RUNBOOK_DIR` | `/data/runbooks` | Directory containing per-service runbook files. Create `nginx.md`, `postgres.md`, etc. — matched case-insensitively against the service name. Content is injected into the AI prompt for specific remediation. Also the default location for `topology.yaml`. |
 | `TOPOLOGY_FILE` | `{RUNBOOK_DIR}/topology.yaml` | Path to a YAML service dependency graph. When present, the AI considers upstream/downstream impact for cascade failure analysis. See [Topology Mapping](#topology-mapping). |
+| `ACTIONS_FILE` | `{RUNBOOK_DIR}/actions.yaml` | Path to operator-defined runnable scripts for the action proxy. See [Action Proxy](#action-proxy). |
 | `COOLDOWN_SECONDS` | `0` | Per-service notification cooldown. After notifying for a service, suppress further notifications for that service for N seconds regardless of message content. `0` disables. Different from dedup (exact match only). **Requires DB.** |
 
 ### Storm Intelligence
@@ -572,6 +573,33 @@ The topology is loaded once on first request and cached for the process lifetime
 
 ---
 
+## Action Proxy
+
+Define operator-approved runnable scripts in `actions.yaml` (inside `RUNBOOK_DIR`, or override with `ACTIONS_FILE`). When an alert fires, Sentinel queues all matching actions as pending. Open the **Actions** page in the web UI to approve or reject each one.
+
+```yaml
+actions:
+  restart_nginx:
+    description: "Restart nginx service"
+    command: ["systemctl", "restart", "nginx"]
+    timeout: 15           # seconds, default 30
+    services: ["nginx"]   # optional — omit to apply to all services
+
+  disk_check:
+    description: "Report disk usage"
+    command: "df -h"      # string is split on whitespace
+    # no services filter → queued on every alert
+```
+
+**Security guarantees:**
+- Commands run with `shell=False` — no shell expansion or injection
+- Subprocess inherits an **empty environment** — no secrets from `.secrets.env` can leak into the child process
+- stdout + stderr are capped at 4 096 characters before storage
+- Only UI-authenticated operators can approve or reject actions
+- Duplicate queuing is suppressed — if a `restart_nginx` action is already pending, a second alert for nginx does not add another
+
+---
+
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the full threat model, data flow, secrets handling, Docker isolation, and a Security Architecture FAQ that answers auditor questions without reading the source.
@@ -713,6 +741,9 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 
 **v2.3 — complete:**
 - Strict JSON extraction — four-level fallback chain in `_extract_json()`: direct parse → markdown fence strip → substring extraction → regex field recovery. Local models that wrap responses in prose or markdown no longer produce silent failures. `SENTINEL_STRICT_JSON=true` logs which extraction level fired for prompt-tuning diagnostics.
+
+**v2.4 — complete:**
+- Action proxy — define runnable scripts in `actions.yaml` (in your runbook directory). When an alert fires, applicable actions are queued automatically. Operators approve or reject each action from the web UI; approved actions run via subprocess in a blank environment (no secret leakage) and their output is shown inline. `ACTIONS_FILE` env var overrides the default path.
 
 **Planned:**
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers

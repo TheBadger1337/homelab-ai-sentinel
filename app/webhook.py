@@ -500,6 +500,18 @@ def webhook():
     actually_notified = not dispatch_result.all_failed
     alert_id = log_alert_returning_id(alert, ai if ai else None, notified=actually_notified)
 
+    # 14a. Action proxy — queue applicable catalog actions for operator approval.
+    #      Only non-recovery alerts trigger actions (no point restarting a recovered service).
+    if not is_recovery and db_available() and alert_id is not None:
+        from .actions import get_applicable_actions
+        from .alert_db import queue_pending_actions
+        try:
+            applicable = get_applicable_actions(alert.service_name)
+            if applicable:
+                queue_pending_actions(alert_id, applicable)
+        except Exception as exc:
+            logger.warning("Action proxy queuing failed: %s", type(exc).__name__)
+
     # 15. Incident lifecycle — only when DB is available
     incident_id = None
     if db_available():

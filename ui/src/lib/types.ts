@@ -97,5 +97,18 @@ export interface Paginated<T> {
   per_page: number;
 }
 
+export interface PendingAction {
+  id: number;
+  ts: number;
+  alert_id: number | null;
+  action_name: string;
+  description: string;
+  command: string[];
+  status: "pending" | "running" | "completed" | "failed" | "rejected";
+  output: string | null;
+  returncode: number | null;
+  ts_completed: number | null;
+}
+
 export type Severity = "critical" | "warning" | "info" | "unknown";
 export type Lifecycle = "emerging" | "active" | "stabilizing" | "resolved";

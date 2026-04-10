@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Shield,
   Network,
+  Play,
   Settings,
   LogOut,
   Menu,
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/incidents", label: "Incidents", icon: AlertTriangle },
   { path: "/alerts", label: "Alerts", icon: Shield },
+  { path: "/actions", label: "Actions", icon: Play },
   { path: "/topology", label: "Topology", icon: Network },
   { path: "/settings", label: "Settings", icon: Settings },
 ] as const;

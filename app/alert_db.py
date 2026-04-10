@@ -314,6 +314,27 @@ def _migrate_v7(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v8(conn: sqlite3.Connection) -> None:
+    """v8: Pending actions — operator-approved runnable scripts queued per alert."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pending_actions (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts           REAL    NOT NULL,
+            alert_id     INTEGER REFERENCES alerts(id),
+            action_name  TEXT    NOT NULL,
+            description  TEXT    NOT NULL DEFAULT '',
+            command_json TEXT    NOT NULL,
+            status       TEXT    NOT NULL DEFAULT 'pending',
+            output       TEXT,
+            returncode   INTEGER,
+            ts_completed REAL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pending_actions_status ON pending_actions (status, ts)"
+    )
+
+
 # Migration registry — index is the target version number.
 # Entry 0 and 1 are None (v1 is the base schema created by init_db).
 _MIGRATIONS: list = [
@@ -325,6 +346,7 @@ _MIGRATIONS: list = [
     _migrate_v5,  # v5 — persistent storm buffer
     _migrate_v6,  # v6 — morning brief log
     _migrate_v7,  # v7 — alert feedback
+    _migrate_v8,  # v8 — pending actions (action proxy)
 ]
 
 
@@ -1234,3 +1256,151 @@ def export_feedback() -> list[dict]:
     except Exception as exc:
         logger.warning("export_feedback failed: %s", type(exc).__name__)
         return []
+
+
+# ---------------------------------------------------------------------------
+# Action proxy — pending actions queued for operator approval
+# ---------------------------------------------------------------------------
+
+def queue_pending_actions(alert_id: int | None, action_defs: list) -> None:
+    """Queue applicable catalog actions as pending for the given alert.
+
+    Skips any action that already has a ``pending`` or ``running`` entry —
+    prevents duplicates when the same service fires multiple alerts in a row.
+    Safe no-op when DB is unavailable.
+    """
+    if not _db_initialized or not action_defs:
+        return
+    try:
+        conn = _get_conn()
+        ts = time.time()
+        for action in action_defs:
+            # Dedup: skip if an identical action is already pending/running
+            existing = conn.execute(
+                "SELECT id FROM pending_actions WHERE action_name = ? AND status IN ('pending', 'running')",
+                (action.name,),
+            ).fetchone()
+            if existing:
+                continue
+            conn.execute(
+                """
+                INSERT INTO pending_actions
+                    (ts, alert_id, action_name, description, command_json, status)
+                VALUES (?, ?, ?, ?, ?, 'pending')
+                """,
+                (
+                    ts,
+                    alert_id,
+                    action.name,
+                    action.description,
+                    json.dumps(action.command),
+                ),
+            )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("queue_pending_actions failed: %s", type(exc).__name__)
+
+
+def get_pending_actions(include_recent: bool = False) -> list[dict]:
+    """Return pending actions.
+
+    When *include_recent* is True, also returns completed/failed/rejected
+    actions from the past 24 hours so the UI can show recent history.
+    Returns empty list on DB error or if DB is unavailable.
+    """
+    if not _db_initialized:
+        return []
+    try:
+        conn = _get_conn()
+        if include_recent:
+            cutoff = time.time() - 86400
+            rows = conn.execute(
+                """
+                SELECT * FROM pending_actions
+                WHERE status = 'pending'
+                   OR (status != 'pending' AND ts_completed > ?)
+                ORDER BY ts DESC
+                """,
+                (cutoff,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM pending_actions WHERE status = 'pending' ORDER BY ts DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.warning("get_pending_actions failed: %s", type(exc).__name__)
+        return []
+
+
+def get_pending_action_by_id(action_id: int) -> dict | None:
+    """Return a single pending_actions row by id, or None."""
+    if not _db_initialized:
+        return None
+    try:
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT * FROM pending_actions WHERE id = ?", (action_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    except Exception as exc:
+        logger.warning("get_pending_action_by_id failed: %s", type(exc).__name__)
+        return None
+
+
+def set_action_running(action_id: int) -> bool:
+    """Transition a pending action to 'running'. Returns True if updated."""
+    if not _db_initialized:
+        return False
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "UPDATE pending_actions SET status = 'running' WHERE id = ? AND status = 'pending'",
+            (action_id,),
+        )
+        conn.commit()
+        return conn.execute("SELECT changes()").fetchone()[0] > 0  # type: ignore[index]
+    except Exception as exc:
+        logger.warning("set_action_running failed: %s", type(exc).__name__)
+        return False
+
+
+def complete_action(action_id: int, returncode: int, output: str) -> None:
+    """Store the result of a completed action."""
+    if not _db_initialized:
+        return
+    try:
+        conn = _get_conn()
+        status = "completed" if returncode == 0 else "failed"
+        conn.execute(
+            """
+            UPDATE pending_actions
+            SET status = ?, output = ?, returncode = ?, ts_completed = ?
+            WHERE id = ?
+            """,
+            (status, output, returncode, time.time(), action_id),
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("complete_action failed: %s", type(exc).__name__)
+
+
+def reject_action(action_id: int) -> bool:
+    """Mark an action as rejected. Returns True if the row was updated."""
+    if not _db_initialized:
+        return False
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """
+            UPDATE pending_actions
+            SET status = 'rejected', ts_completed = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (time.time(), action_id),
+        )
+        conn.commit()
+        return conn.execute("SELECT changes()").fetchone()[0] > 0  # type: ignore[index]
+    except Exception as exc:
+        logger.warning("reject_action failed: %s", type(exc).__name__)
+        return False

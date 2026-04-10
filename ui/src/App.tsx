@@ -13,6 +13,7 @@ import { Setup } from "./pages/Setup";
 import { Dashboard } from "./pages/Dashboard";
 import { Incidents } from "./pages/Incidents";
 import { IncidentDetail } from "./pages/IncidentDetail";
+import { Actions } from "./pages/Actions";
 import { Alerts } from "./pages/Alerts";
 import { SettingsPage } from "./pages/SettingsPage";
 import { checkSession } from "./lib/api";
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="/incidents" element={<Incidents />} />
           <Route path="/incidents/:id" element={<IncidentDetail />} />
           <Route path="/alerts" element={<Alerts />} />
+          <Route path="/actions" element={<Actions />} />
           <Route path="/topology" element={<Suspense fallback={<div className="flex h-64 items-center justify-center"><div className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-primary)] border-t-transparent" /></div>}><Topology /></Suspense>} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>

@@ -191,6 +191,23 @@ export function getPulse(service: string) {
   );
 }
 
+// Actions
+export function getActions(includeRecent = false) {
+  const qs = includeRecent ? "?include_recent=true" : "";
+  return request<{ actions: import("./types").PendingAction[] }>(`/actions${qs}`);
+}
+
+export function approveAction(id: number) {
+  return request<{ status: string; returncode: number; output: string }>(
+    `/actions/${id}/approve`,
+    { method: "POST" }
+  );
+}
+
+export function rejectAction(id: number) {
+  return request<{ status: string }>(`/actions/${id}/reject`, { method: "POST" });
+}
+
 // Settings
 export function getSettings() {
   return request<Record<string, unknown>>("/settings");

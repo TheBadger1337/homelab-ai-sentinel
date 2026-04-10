@@ -28,15 +28,20 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from .alert_db import (
     _get_conn,
     add_feedback,
+    complete_action,
     export_feedback,
     get_all_open_incidents,
     get_db_stats,
     get_dlq_count,
     get_feedback_for_alert,
     get_incident,
+    get_pending_action_by_id,
+    get_pending_actions,
     get_security_summary,
     get_ui_config,
+    reject_action,
     resolve_incident,
+    set_action_running,
     set_ui_config,
 )
 from .llm_client import get_rpm_status
@@ -871,6 +876,91 @@ def settings():
         "ai_concurrency": _env_int("AI_CONCURRENCY", 4),
         "platforms": platforms,
     })
+
+
+# ---------------------------------------------------------------------------
+# Action proxy
+# ---------------------------------------------------------------------------
+
+@api_bp.route("/actions", methods=["GET"])
+@require_ui_auth
+def list_actions():
+    """List pending actions, optionally including recent completed/rejected ones.
+
+    Query params:
+      include_recent=true  — include completed/failed/rejected from the last 24 h
+    """
+    include_recent = request.args.get("include_recent", "").lower() == "true"
+    actions = get_pending_actions(include_recent=include_recent)
+    # Parse command_json back to list for the client
+    for a in actions:
+        try:
+            a["command"] = json.loads(a.get("command_json", "[]"))
+        except (json.JSONDecodeError, TypeError):
+            a["command"] = []
+        a.pop("command_json", None)
+    return jsonify({"actions": actions})
+
+
+@api_bp.route("/actions/<int:action_id>/approve", methods=["POST"])
+@require_ui_auth
+def approve_action(action_id: int):
+    """Run the action and store output. Returns immediately with result.
+
+    The action runs synchronously in this request. Timeout is set by the
+    action definition in actions.yaml (default 30 s).
+    """
+    from .actions import ActionDef, run_action
+
+    row = get_pending_action_by_id(action_id)
+    if row is None:
+        return jsonify({"error": "action not found"}), 404
+    if row["status"] != "pending":
+        return jsonify({"error": f"action is already {row['status']}"}), 409
+
+    # Parse the stored command
+    try:
+        command = json.loads(row["command_json"])
+    except (json.JSONDecodeError, TypeError):
+        return jsonify({"error": "invalid action command"}), 500
+
+    # Mark running before executing so concurrent approvals are rejected
+    if not set_action_running(action_id):
+        return jsonify({"error": "action could not be started (status changed)"}), 409
+
+    action_def = ActionDef(
+        name=row["action_name"],
+        description=row["description"],
+        command=command,
+        timeout=30,  # default; stored timeout not persisted in this version
+    )
+    returncode, output = run_action(action_def)
+    complete_action(action_id, returncode, output)
+
+    logger.info(
+        "Action %d (%s) executed: returncode=%d", action_id, row["action_name"], returncode
+    )
+    return jsonify({
+        "status": "completed" if returncode == 0 else "failed",
+        "returncode": returncode,
+        "output": output,
+    })
+
+
+@api_bp.route("/actions/<int:action_id>/reject", methods=["POST"])
+@require_ui_auth
+def reject_action_route(action_id: int):
+    """Reject (dismiss) a pending action without running it."""
+    row = get_pending_action_by_id(action_id)
+    if row is None:
+        return jsonify({"error": "action not found"}), 404
+    if row["status"] != "pending":
+        return jsonify({"error": f"action is already {row['status']}"}), 409
+
+    if not reject_action(action_id):
+        return jsonify({"error": "action could not be rejected"}), 500
+
+    return jsonify({"status": "rejected"})
 
 
 # ---------------------------------------------------------------------------

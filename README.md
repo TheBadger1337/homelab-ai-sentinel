@@ -389,6 +389,8 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `RUNBOOK_DIR` | `/data/runbooks` | Directory containing per-service runbook files. Create `nginx.md`, `postgres.md`, etc. — matched case-insensitively against the service name. Content is injected into the AI prompt for specific remediation. Also the default location for `topology.yaml`. |
 | `TOPOLOGY_FILE` | `{RUNBOOK_DIR}/topology.yaml` | Path to a YAML service dependency graph. When present, the AI considers upstream/downstream impact for cascade failure analysis. See [Topology Mapping](#topology-mapping). |
 | `ACTIONS_FILE` | `{RUNBOOK_DIR}/actions.yaml` | Path to operator-defined runnable scripts for the action proxy. See [Action Proxy](#action-proxy). |
+| `SHADOWS_FILE` | `{RUNBOOK_DIR}/shadows.yaml` | Path to expected-heartbeat declarations. See [Synthetic Shadowing](#synthetic-shadowing). |
+| `SHADOW_CHECK_INTERVAL` | `60` | How often (in seconds) the shadow checker scans for silent services. |
 | `COOLDOWN_SECONDS` | `0` | Per-service notification cooldown. After notifying for a service, suppress further notifications for that service for N seconds regardless of message content. `0` disables. Different from dedup (exact match only). **Requires DB.** |
 
 ### Storm Intelligence
@@ -573,6 +575,33 @@ The topology is loaded once on first request and cached for the process lifetime
 
 ---
 
+## Synthetic Shadowing
+
+Define expected heartbeat intervals so Sentinel pages you even when your monitoring tool goes silent. Put `shadows.yaml` in your runbook directory (or set `SHADOWS_FILE`):
+
+```yaml
+shadows:
+  ping_monitor:
+    interval: 300         # alert if no webhook received in 5 minutes
+    severity: warning     # warning (default) or critical
+    description: "Uptime Kuma ping monitor — expected every 5 minutes"
+
+  database_backup:
+    interval: 3600
+    severity: critical
+    description: "Nightly backup job — must report within 1 hour"
+```
+
+The shadow checker runs every `SHADOW_CHECK_INTERVAL` seconds (default: 60). When a service has been silent longer than its interval:
+
+1. Sentinel checks whether an open incident already exists for that service (avoids duplicate alerts across restarts)
+2. If no open incident: fires a synthetic alert through the normal AI enrichment + notify pipeline
+3. When the real service resumes and sends a webhook, that alert links to the existing incident — the operator resolves it from the UI
+
+Services with no prior alert history are given a full grace period on startup to avoid false positives immediately after a restart.
+
+---
+
 ## Action Proxy
 
 Define operator-approved runnable scripts in `actions.yaml` (inside `RUNBOOK_DIR`, or override with `ACTIONS_FILE`). When an alert fires, Sentinel queues all matching actions as pending. Open the **Actions** page in the web UI to approve or reject each one.
@@ -744,6 +773,9 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 
 **v2.4 — complete:**
 - Action proxy — define runnable scripts in `actions.yaml` (in your runbook directory). When an alert fires, applicable actions are queued automatically. Operators approve or reject each action from the web UI; approved actions run via subprocess in a blank environment (no secret leakage) and their output is shown inline. `ACTIONS_FILE` env var overrides the default path.
+
+**v2.5 — complete:**
+- Synthetic shadowing — define expected heartbeat intervals per service in `shadows.yaml`. When a watched service stops sending webhooks for longer than its configured interval, Sentinel fires a synthetic alert through the normal notify + AI pipeline so the operator is paged even when the monitoring tool itself is silent. Uses the incidents table to avoid re-firing after an open incident is already created. `SHADOWS_FILE` and `SHADOW_CHECK_INTERVAL` env vars.
 
 **Planned:**
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers

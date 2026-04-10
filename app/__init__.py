@@ -157,6 +157,13 @@ def create_app() -> Flask:
     else:
         logger.debug("Morning brief not started (requires DB)")
 
+    # Synthetic shadowing — detect services that stop heartbeating (opt-in via shadows.yaml)
+    if _db_ok:
+        from .shadowing import start_shadowing
+        start_shadowing()
+    else:
+        logger.debug("Shadowing not started (requires DB)")
+
     # -----------------------------------------------------------------
     # Security headers — applied to every response
     # -----------------------------------------------------------------

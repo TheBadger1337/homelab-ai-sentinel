@@ -257,6 +257,7 @@ Tier 1 (Stateless Core)
 ├── Topology (AI context) ...... YAML file on disk
 ├── Runbooks (AI context) ...... markdown files on disk
 ├── Reverse triage ............. REVERSE_TRIAGE_<SERVICE> scripts on disk
+├── Subnet allowlist ........... WHITELIST_SUBNET env var only
 ├── Watchdog heartbeat ......... URL only
 ├── Prometheus metrics ......... in-memory counters
 └── Webhook auth ............... env var only
@@ -278,7 +279,8 @@ Tier 3 (requires DB_PATH + UI_PASSWORD)
 ├── Session auth (SQLite-backed)
 ├── SSE real-time stream
 ├── React SPA dashboard
-└── Human feedback ............. /api/alerts/<id>/feedback (UI rating buttons)
+├── Human feedback ............. /api/alerts/<id>/feedback (UI rating buttons)
+└── Live SSE topology .......... real-time node state + cascade dimming (UI)
 ```
 
 ---
@@ -423,6 +425,7 @@ Scripts are run with a completely blank environment — Sentinel API keys, token
 
 | Variable | Default | Description |
 |---|---|---|
+| `WHITELIST_SUBNET` | — | Comma-separated CIDR networks allowed to POST to `/webhook`. Requests from IPs outside all listed networks receive 403 and are logged to the security audit. Example: `192.168.1.0/24` or `192.168.0.0/16,10.0.0.0/8`. Fail-open: a malformed CIDR entry is skipped with a warning, not treated as "block all". |
 | `WEBHOOK_SECRET` | — | Shared secret for `X-Webhook-Token` header auth. Recommended for internet-facing deployments. Generate: `openssl rand -hex 32` |
 | `WEBHOOK_RATE_LIMIT` | `0` | Max requests per `WEBHOOK_RATE_WINDOW` seconds. `0` disables. **Requires DB.** |
 | `WEBHOOK_RATE_WINDOW` | `60` | Sliding window size in seconds. |
@@ -702,6 +705,10 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - Morning brief — scheduled AI digest of quiet-hours activity sent each morning (`MORNING_BRIEF_ENABLED`, `MORNING_BRIEF_TIME`); uses `QUIET_HOURS` window or falls back to the previous 8 hours; dispatched to all configured notification platforms as a synthetic alert; double-send-guarded via DB
 - Human feedback loop — thumbs-up / meh / thumbs-down ratings on AI insights from the web UI (`POST /api/alerts/<id>/feedback`); exportable dataset via `GET /api/feedback/export` for offline fine-tuning or prompt analysis
 - Reverse triage — operator-configured diagnostic scripts run per service at alert time (`REVERSE_TRIAGE_<SERVICE>`); stdout injected as live context into the AI prompt; scripts run with a blank environment so no Sentinel secrets leak; output capped at 2000 chars, timeout configurable via `REVERSE_TRIAGE_TIMEOUT`
+
+**v2.2 — complete:**
+- `WHITELIST_SUBNET` — IP allowlist gate on the webhook endpoint (comma-separated CIDR networks, e.g. `192.168.1.0/24,10.0.0.0/8`); blocked IPs logged to security audit; fail-open on malformed entries so a bad CIDR string never silently locks you out
+- Live SSE topology — real-time node state on the topology map without page reload: alerting nodes glow with their severity colour, cascade-impacted downstream services dim with a warning icon, dependency edges animate to trace the failure propagation path
 
 **Planned:**
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers

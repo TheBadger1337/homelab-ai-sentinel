@@ -73,14 +73,14 @@ process is not running rather than overloaded.
 
 | | |
 |---|---|
-| 🤖 **Discord Bot Included** | `bot/` — reference Discord bot that connects to any OpenAI-compatible backend (Ollama, LM Studio, OpenAI). Chat, context, `!clear`. Full-featured version with voice, streaming AI, and Claude Code bridge in the [setup guide](#premium-guides). |
-| 🔔 **10 Notification Platforms** | Discord · Slack · Telegram · Ntfy · Email · WhatsApp · Signal · Gotify · Matrix · iMessage — configure any combination, all optional · Teams / Pushover / PagerDuty *(v2.7)* |
-| 🔍 **11 Alert Source Parsers** | Uptime Kuma · Grafana · Prometheus · Healthchecks.io · Netdata · Zabbix · Checkmk · WUD · Docker Events · Glances · Generic JSON — auto-detected, zero config |
-| 🤖 **AI Enrichment** | **Gemini 2.5 Flash** by default (free tier sufficient for homelab volumes) — swap to Claude, GPT-4o, Grok, Groq, or any local model via Ollama/LM Studio/llama.cpp/vLLM |
+| 🔔 **10+ Notification Platforms** | Discord · Slack · Telegram · Ntfy · Email · WhatsApp · Signal · Gotify · Matrix · iMessage — configure any combination, all optional · Teams · Pushover · PagerDuty *(v2.7)* |
+| 🔍 **11+ Alert Source Parsers** | Uptime Kuma · Grafana · Prometheus · Healthchecks.io · Netdata · Zabbix · Checkmk · WUD · Docker Events · Glances · Generic JSON — Nagios · LibreNMS · Home Assistant *(v2.7)* — auto-detected, zero config |
+| 🤖 **Model-Agnostic AI** | Gemini (free tier) · Claude · GPT-4o · Grok · Groq · Ollama · LM Studio · any OpenAI-compatible endpoint — one env var to switch, automatic provider fallback |
+| 🌐 **Web Dashboard** | Incident tracking · alert history · live SSE feed · interactive topology graph · action proxy approval · operator feedback · morning digest — opt-in, requires DB + password |
 | 🔒 **Zero System Access** | Stateless and read-only. Sentinel receives JSON, calls an AI API, sends text. The AI cannot restart services, run commands, or read your filesystem |
-| 🧪 **Production-Hardened** | HMAC auth · deduplication · global rate limiting · retry/backoff · graceful fallback · SSRF protection · secret redaction · prompt injection detection · security audit log |
-| 💸 **Free to Run** | Defaults to Gemini 2.5 Flash (free tier: 10 RPM, 500 req/day) — swap to Claude, GPT-4o, Groq, or run fully local with Ollama or LM Studio — no data leaves your machine |
-| 🌐 **Web Dashboard** | Real-time incident timeline, topology view, severity-coded alerts — opt-in, requires DB + password |
+| 🛡️ **Production-Hardened** | HMAC auth · dedup (L1 memory + L2 SQLite) · rate limiting · cooldown · storm buffering · DLQ retry · SSRF protection · secret redaction · prompt injection detection · security audit log |
+| 💸 **Free to Run** | Gemini free tier is sufficient for homelab volumes (10 RPM, 500 req/day). Run fully local with Ollama — no data leaves your machine |
+| 🎮 **Discord Bot Included** | `bot/` — reference bot connecting to any OpenAI-compatible backend (Ollama, LM Studio, OpenAI). Chat, context, `!clear` |
 
 ---
 

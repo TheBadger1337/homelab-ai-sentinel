@@ -256,6 +256,7 @@ Tier 1 (Stateless Core)
 ├── Notification dispatch ...... platform credentials only
 ├── Topology (AI context) ...... YAML file on disk
 ├── Runbooks (AI context) ...... markdown files on disk
+├── Reverse triage ............. REVERSE_TRIAGE_<SERVICE> scripts on disk
 ├── Watchdog heartbeat ......... URL only
 ├── Prometheus metrics ......... in-memory counters
 └── Webhook auth ............... env var only
@@ -269,13 +270,15 @@ Tier 2 (requires DB_PATH)
 ├── Dead letter queue .......... DLQ_MAX_RETRIES
 ├── Incidents + correlation .... topology file + DB
 ├── Pulse stats ................ predictive mode + DB
+├── Morning brief .............. MORNING_BRIEF_ENABLED + MORNING_BRIEF_TIME
 └── Housekeeper
 
 Tier 3 (requires DB_PATH + UI_PASSWORD)
 ├── /api/* REST endpoints
 ├── Session auth (SQLite-backed)
 ├── SSE real-time stream
-└── React SPA dashboard
+├── React SPA dashboard
+└── Human feedback ............. /api/alerts/<id>/feedback (UI rating buttons)
 ```
 
 ---
@@ -397,6 +400,24 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 |---|---|---|
 | `WATCHDOG_URL` | — | URL to ping periodically. If Sentinel hangs or crashes, the missed heartbeat alerts you via external monitoring (Healthchecks.io, Uptime Kuma, etc.). |
 | `WATCHDOG_INTERVAL` | `300` | Seconds between heartbeat pings. Minimum 10. |
+
+### Morning Brief
+
+| Variable | Default | Description |
+|---|---|---|
+| `MORNING_BRIEF_ENABLED` | `false` | Set to `true` to send a daily AI digest each morning. **Requires DB.** |
+| `MORNING_BRIEF_TIME` | `07:00` | Time to send the brief (24-hour HH:MM). Sentinel uses the `QUIET_HOURS` window as the review period; falls back to the previous 8 hours if `QUIET_HOURS` is not set. |
+
+The brief queries the alert DB for the review window, calls the AI with a structured prompt, and dispatches to all configured notification platforms as a synthetic `morning_brief` alert. If dispatch fails, the send is not recorded and will be retried the next day. If no alerts occurred in the window, the brief is skipped silently.
+
+### Reverse Triage
+
+| Variable | Default | Description |
+|---|---|---|
+| `REVERSE_TRIAGE_<SERVICE>` | — | Absolute path to a diagnostic script for a service. Replace `<SERVICE>` with the normalized service name: uppercase, spaces and hyphens → underscores. E.g. `REVERSE_TRIAGE_NGINX=/opt/triage/nginx.sh`. The script receives `service_name` and `severity` as positional arguments and must exit `0`. Stdout (up to 2000 chars) is injected into the AI prompt as the highest-priority context section. |
+| `REVERSE_TRIAGE_TIMEOUT` | `10` | Max seconds a triage script may run. Scripts that exceed this are killed and their output is discarded. |
+
+Scripts are run with a completely blank environment — Sentinel API keys, tokens, and credentials are not accessible. Output is XML-escaped before prompt insertion to prevent tag injection. Only runs on non-recovery alerts; recovery alerts skip triage.
 
 ### Security & Rate Limiting
 
@@ -677,10 +698,12 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - Accurate dispatch counting — unconfigured platforms skipped, not counted as successes
 - Tested against real homelab fixtures (tests not included — see Running Tests)
 
+**v2.1 — complete:**
+- Morning brief — scheduled AI digest of quiet-hours activity sent each morning (`MORNING_BRIEF_ENABLED`, `MORNING_BRIEF_TIME`); uses `QUIET_HOURS` window or falls back to the previous 8 hours; dispatched to all configured notification platforms as a synthetic alert; double-send-guarded via DB
+- Human feedback loop — thumbs-up / meh / thumbs-down ratings on AI insights from the web UI (`POST /api/alerts/<id>/feedback`); exportable dataset via `GET /api/feedback/export` for offline fine-tuning or prompt analysis
+- Reverse triage — operator-configured diagnostic scripts run per service at alert time (`REVERSE_TRIAGE_<SERVICE>`); stdout injected as live context into the AI prompt; scripts run with a blank environment so no Sentinel secrets leak; output capped at 2000 chars, timeout configurable via `REVERSE_TRIAGE_TIMEOUT`
+
 **Planned:**
-- Morning brief — scheduled AI summary of overnight quiet-hours activity
-- Human feedback loop — emoji reactions and text responses for AI self-learning
-- Reverse triage — opt-in context scripts per service for deeper AI analysis
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers
 - Teams, Pushover, PagerDuty notification targets
 

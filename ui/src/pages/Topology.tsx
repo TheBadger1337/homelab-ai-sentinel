@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Network, Server, HardDrive, Maximize2, Minimize2 } from "lucide-react";
+import { Network, Server, HardDrive, Maximize2, Minimize2, AlertTriangle } from "lucide-react";
 import {
   ReactFlow,
   Background,
@@ -19,7 +19,8 @@ import { SeverityBadge } from "../components/Badge";
 import { Card } from "../components/Card";
 import { Skeleton } from "../components/Skeleton";
 import { getTopology } from "../lib/api";
-import type { Severity } from "../lib/types";
+import { useSSE } from "../hooks/useSSE";
+import type { Severity, SSEEvent, TopologyService } from "../lib/types";
 
 import "@xyflow/react/dist/style.css";
 
@@ -90,12 +91,14 @@ interface ServiceNodeData {
   hasIncident: boolean;
   severity: Severity | null;
   incidentId: number | null;
+  /** True when a direct upstream dependency has an active alert (live SSE). */
+  isImpacted: boolean;
   [key: string]: unknown;
 }
 
 function ServiceNode({ data }: NodeProps<Node<ServiceNodeData>>) {
   const navigate = useNavigate();
-  const { hasIncident, severity, incidentId, label, host, description } = data;
+  const { hasIncident, severity, incidentId, label, host, description, isImpacted } = data;
 
   const severityColor = hasIncident
     ? severity === "critical"
@@ -103,14 +106,20 @@ function ServiceNode({ data }: NodeProps<Node<ServiceNodeData>>) {
       : severity === "warning"
         ? "var(--severity-warning)"
         : "var(--severity-info)"
-    : "var(--severity-resolved)";
+    : isImpacted
+      ? "var(--severity-warning)"
+      : "var(--severity-resolved)";
+
+  const borderClass = hasIncident
+    ? "border-[var(--severity-critical)]/40 shadow-[0_0_12px_rgba(244,63,94,0.15)]"
+    : isImpacted
+      ? "border-[var(--severity-warning)]/30"
+      : "border-[var(--color-border)] hover:border-[var(--color-text-muted)]";
 
   return (
     <div
-      className={`group relative rounded-xl border bg-[var(--color-surface)] px-4 py-3 transition-all duration-150 ${
-        hasIncident
-          ? "border-[var(--severity-critical)]/40 shadow-[0_0_12px_rgba(244,63,94,0.15)]"
-          : "border-[var(--color-border)] hover:border-[var(--color-text-muted)]"
+      className={`group relative rounded-xl border bg-[var(--color-surface)] px-4 py-3 transition-all duration-150 ${borderClass} ${
+        isImpacted && !hasIncident ? "opacity-60" : ""
       } ${incidentId ? "cursor-pointer" : ""}`}
       style={{ width: NODE_WIDTH }}
       onClick={
@@ -146,6 +155,9 @@ function ServiceNode({ data }: NodeProps<Node<ServiceNodeData>>) {
         </div>
         {hasIncident && severity && (
           <SeverityBadge severity={severity} className="scale-90" />
+        )}
+        {isImpacted && !hasIncident && (
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-[var(--severity-warning)] opacity-70" />
         )}
       </div>
 
@@ -198,11 +210,44 @@ function ResourceNode({ data }: NodeProps<Node<ResourceNodeData>>) {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
+   Cascade impact computation
+   ────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Given a set of services with active live alerts, return the set of
+ * service names (lowercase) that transitively depend on any of them.
+ * These are "impacted" downstream services — they may be affected by
+ * the upstream failure even if they haven't alerted yet.
+ */
+function getCascadeImpacted(
+  alertingKeys: Set<string>,
+  services: Record<string, TopologyService>,
+): Set<string> {
+  const impacted = new Set<string>();
+
+  function traverse(upstream: string) {
+    for (const [name, svc] of Object.entries(services)) {
+      const key = name.toLowerCase();
+      if (impacted.has(key) || alertingKeys.has(key)) continue;
+      if ((svc.depends_on ?? []).some((d) => d.toLowerCase() === upstream)) {
+        impacted.add(key);
+        traverse(key);
+      }
+    }
+  }
+
+  for (const key of alertingKeys) {
+    traverse(key);
+  }
+  return impacted;
+}
+
+/* ──────────────────────────────────────────────────────────────────────
    Graph builder — converts API topology into React Flow nodes/edges
    ────────────────────────────────────────────────────────────────────── */
 
 interface TopologyData {
-  services: Record<string, Record<string, unknown>>;
+  services: Record<string, TopologyService>;
   shared_resources: Record<string, unknown>;
 }
 
@@ -220,16 +265,17 @@ function buildGraph(data: TopologyData): { nodes: Node[]; edges: Edge[] } {
       position: { x: 0, y: 0 }, // dagre will set this
       data: {
         label: name,
-        host: svc.host as string | undefined,
-        description: svc.description as string | undefined,
-        hasIncident: svc.has_incident as boolean,
-        severity: (svc.incident_severity as Severity) ?? null,
-        incidentId: (svc.incident_id as number) ?? null,
+        host: svc.host,
+        description: svc.description,
+        hasIncident: svc.has_incident,
+        severity: svc.incident_severity,
+        incidentId: svc.incident_id,
+        isImpacted: false, // overridden by live SSE state
       },
     });
 
     // depends_on edges (child → parent = downstream → upstream)
-    const deps = (svc.depends_on as string[]) ?? [];
+    const deps = svc.depends_on ?? [];
     deps.forEach((dep) => {
       edges.push({
         id: `dep-${name}-${dep}`,
@@ -243,7 +289,7 @@ function buildGraph(data: TopologyData): { nodes: Node[]; edges: Edge[] } {
     });
 
     // uses edges (service → resource)
-    const uses = (svc.uses as string[]) ?? [];
+    const uses = svc.uses ?? [];
     uses.forEach((res) => {
       edges.push({
         id: `uses-${name}-${res}`,
@@ -304,15 +350,22 @@ const nodeTypes = {
   resourceNode: ResourceNode,
 };
 
+/** Live alert state received via SSE — overrides API topology on the map. */
+interface LiveAlert {
+  severity: Severity;
+  incidentId: number | null;
+}
+
 function TopologyGraph() {
   const [data, setData] = useState<TopologyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [fullscreen, setFullscreen] = useState(false);
+  const [liveAlerts, setLiveAlerts] = useState<Map<string, LiveAlert>>(new Map());
 
   const fetchData = useCallback(async () => {
     try {
       const result = await getTopology();
-      setData(result);
+      setData(result as TopologyData);
     } catch {
       // Auth redirect
     } finally {
@@ -324,10 +377,85 @@ function TopologyGraph() {
     fetchData();
   }, [fetchData]);
 
-  const { nodes, edges } = useMemo(() => {
-    if (!data) return { nodes: [], edges: [] };
+  // Subscribe to SSE — update live alert state in real time.
+  // "alert" events activate a node; "resolution" events clear it.
+  useSSE(
+    useCallback((event: SSEEvent) => {
+      if (event.type === "alert") {
+        const service = event.data.service as string | undefined;
+        const severity = event.data.severity as Severity | undefined;
+        const incidentId = (event.data.incident_id as number | null) ?? null;
+        if (!service || !severity) return;
+        setLiveAlerts((prev) => {
+          const next = new Map(prev);
+          next.set(service.toLowerCase(), { severity, incidentId });
+          return next;
+        });
+      } else if (event.type === "resolution") {
+        const service = event.data.service as string | undefined;
+        if (!service) return;
+        setLiveAlerts((prev) => {
+          const next = new Map(prev);
+          next.delete(service.toLowerCase());
+          return next;
+        });
+      }
+    }, []),
+  );
+
+  // Base graph — dagre layout runs only when topology data changes.
+  const baseGraph = useMemo(() => {
+    if (!data) return null;
     return buildGraph(data);
   }, [data]);
+
+  // Apply live SSE state on top of the base graph without re-running dagre.
+  // Alerting nodes glow; cascade-impacted dependents are dimmed with a warning
+  // icon; edges flowing out of an alerting node animate to show propagation.
+  const { nodes, edges } = useMemo(() => {
+    if (!baseGraph || !data) return { nodes: [], edges: [] };
+
+    const alertingKeys = new Set(liveAlerts.keys());
+    const impacted = alertingKeys.size > 0
+      ? getCascadeImpacted(alertingKeys, data.services)
+      : new Set<string>();
+
+    const nodes = baseGraph.nodes.map((node) => {
+      if (node.type !== "serviceNode") return node;
+      const key = (node.data as ServiceNodeData).label.toLowerCase();
+      const live = liveAlerts.get(key);
+      const isImpacted = !live && impacted.has(key);
+      if (!live && !isImpacted) return node;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          hasIncident: live ? true : (node.data as ServiceNodeData).hasIncident,
+          severity: live ? live.severity : (node.data as ServiceNodeData).severity,
+          incidentId: live ? live.incidentId : (node.data as ServiceNodeData).incidentId,
+          isImpacted,
+        },
+      };
+    });
+
+    const edges = baseGraph.edges.map((edge) => {
+      const srcKey = edge.source.startsWith("svc-")
+        ? edge.source.slice(4).toLowerCase()
+        : null;
+      if (!srcKey || !alertingKeys.has(srcKey)) return edge;
+      return {
+        ...edge,
+        animated: true,
+        style: {
+          ...edge.style,
+          stroke: "var(--severity-warning)",
+          strokeWidth: 2,
+        },
+      };
+    });
+
+    return { nodes, edges };
+  }, [baseGraph, data, liveAlerts]);
 
   if (loading) {
     return (

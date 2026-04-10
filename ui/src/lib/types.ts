@@ -39,7 +39,10 @@ export interface IncidentNote {
 
 export interface TopologyService {
   depends_on?: string[];
+  uses?: string[];
   type?: string;
+  host?: string;
+  description?: string;
   has_incident: boolean;
   incident_severity: Severity | null;
   incident_id: number | null;

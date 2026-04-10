@@ -314,6 +314,24 @@ def validate_config() -> list[str]:
                 )
 
     # -----------------------------------------------------------------
+    # 16. WHITELIST_SUBNET — must be valid CIDR networks
+    # -----------------------------------------------------------------
+    whitelist_raw = os.environ.get("WHITELIST_SUBNET", "").strip()
+    if whitelist_raw:
+        import ipaddress
+        for entry in whitelist_raw.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                warn(
+                    f"WHITELIST_SUBNET contains invalid CIDR entry {entry!r} — "
+                    f"that entry will be skipped. Example: WHITELIST_SUBNET=192.168.1.0/24"
+                )
+
+    # -----------------------------------------------------------------
     # Summary
     # -----------------------------------------------------------------
     if warnings:

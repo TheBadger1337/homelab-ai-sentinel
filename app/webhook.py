@@ -49,6 +49,7 @@ Error responses
 
 import hashlib
 import hmac
+import ipaddress
 import logging
 import os
 import time
@@ -206,6 +207,50 @@ def _check_secret() -> bool:
     return hmac.compare_digest(provided, secret)
 
 
+def _check_subnet_allowlist() -> bool:
+    """
+    Return True if the request should be blocked (source IP not in any
+    allowlisted subnet). Returns False (allow) when WHITELIST_SUBNET is
+    not set or empty.
+
+    WHITELIST_SUBNET accepts one or more comma-separated CIDR networks:
+      WHITELIST_SUBNET=192.168.1.0/24
+      WHITELIST_SUBNET=192.168.0.0/16,10.0.0.0/8
+
+    Misconfigured entries are skipped with a warning — never silently block
+    all traffic because of a bad CIDR string. If all entries are malformed,
+    the allowlist is treated as absent (allow all).
+    """
+    raw = os.environ.get("WHITELIST_SUBNET", "").strip()
+    if not raw:
+        return False  # disabled
+
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            networks.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            logger.warning("WHITELIST_SUBNET: invalid CIDR entry %r — skipping", entry)
+
+    if not networks:
+        return False  # all entries were malformed — fail open
+
+    remote = request.remote_addr
+    if not remote:
+        return False  # can't determine IP — fail open
+
+    try:
+        client = ipaddress.ip_address(remote)
+    except ValueError:
+        logger.warning("WHITELIST_SUBNET: cannot parse client IP %r — allowing", remote)
+        return False
+
+    return not any(client in net for net in networks)
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -249,6 +294,13 @@ def prometheus_metrics():
 
 @webhook_bp.route("/webhook", methods=["POST"])
 def webhook():
+    # 0. Subnet allowlist — checked before auth so blocked IPs never touch
+    #    our HMAC path. Fail-open: misconfigured CIDR entries are skipped
+    #    with a warning rather than blocking all traffic.
+    if _check_subnet_allowlist():
+        log_security_event("subnet_blocked", f"ip={request.remote_addr}")
+        return jsonify({"error": "forbidden"}), 403
+
     # 1. Authenticate
     if not _check_secret():
         log_security_event("auth_failure", f"ip={request.remote_addr}")

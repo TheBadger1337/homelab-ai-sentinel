@@ -149,6 +149,33 @@ export function deleteAlerts(filters: {
   });
 }
 
+// Feedback
+export function submitFeedback(
+  alertId: number,
+  rating: "up" | "down" | "meh",
+  comment?: string
+) {
+  return request<{ status: string; alert_id: number; rating: string }>(
+    `/alerts/${alertId}/feedback`,
+    {
+      method: "POST",
+      body: JSON.stringify({ rating, comment: comment || undefined }),
+    }
+  );
+}
+
+export function getAlertFeedback(alertId: number) {
+  return request<{
+    feedback: {
+      id: number;
+      alert_id: number;
+      ts: number;
+      rating: string;
+      comment: string | null;
+    } | null;
+  }>(`/alerts/${alertId}/feedback`);
+}
+
 // Topology
 export function getTopology() {
   return request<{

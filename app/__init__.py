@@ -9,6 +9,7 @@ from .api import api_bp
 from .mcp import mcp_bp
 from .config_validator import validate_config
 from .housekeeper import start_housekeeper
+from .morning_brief import start_morning_brief
 from .watchdog import start_watchdog
 from .webhook import webhook_bp
 
@@ -149,6 +150,12 @@ def create_app() -> Flask:
         start_housekeeper()
     else:
         logger.info("Housekeeper not started (requires DB)")
+
+    # Morning brief — daily digest of quiet-hours activity (opt-in via MORNING_BRIEF_ENABLED)
+    if _db_ok:
+        start_morning_brief()
+    else:
+        logger.debug("Morning brief not started (requires DB)")
 
     # -----------------------------------------------------------------
     # Security headers — applied to every response

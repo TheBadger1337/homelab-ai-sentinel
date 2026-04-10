@@ -68,6 +68,7 @@ from . import metrics
 from . import notify
 from .security import scan_for_injection
 from .alert_db import db_available
+from .reverse_triage import get_triage_context
 
 
 def _ui_enabled() -> bool:
@@ -386,6 +387,12 @@ def webhook():
         runbook = get_runbook(alert.service_name)
         topo = get_topology(alert.service_name)
 
+        # Reverse triage — run operator-configured diagnostic script if available.
+        # Only on non-recovery alerts (recovery context is already rich with outage data).
+        triage_ctx: str | None = None
+        if not is_recovery:
+            triage_ctx = get_triage_context(alert)
+
         # Resolution verification — when a recovery arrives, ask the AI to
         # summarize the preceding outage using the outage window alerts.
         # Pre-check: only do the expensive resolution AI call if there's
@@ -406,7 +413,10 @@ def webhook():
             else:
                 ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook, topology=topo)
         else:
-            ai = get_ai_insight(alert, history=history, pulse=pulse, runbook=runbook, topology=topo)
+            ai = get_ai_insight(
+                alert, history=history, pulse=pulse, runbook=runbook,
+                topology=topo, triage_context=triage_ctx,
+            )
 
         logger.info("AI insight generated for %s (mode=%s)", alert.service_name, mode)
         logger.debug("AI response: insight=%r actions=%s", ai.get("insight", "")[:200], ai.get("suggested_actions"))

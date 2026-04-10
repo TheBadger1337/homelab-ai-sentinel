@@ -27,9 +27,12 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 from .alert_db import (
     _get_conn,
+    add_feedback,
+    export_feedback,
     get_all_open_incidents,
     get_db_stats,
     get_dlq_count,
+    get_feedback_for_alert,
     get_incident,
     get_security_summary,
     get_ui_config,
@@ -728,6 +731,66 @@ def delete_alerts_batch():
     except Exception as exc:
         logger.warning("Batch delete alerts failed: %s", type(exc).__name__)
         return jsonify({"error": "internal error"}), 500
+
+
+# ---------------------------------------------------------------------------
+# Alert feedback — operator ratings on AI insights
+# ---------------------------------------------------------------------------
+
+_VALID_RATINGS = frozenset({"up", "down", "meh"})
+
+
+@api_bp.route("/alerts/<int:alert_id>/feedback", methods=["POST"])
+@require_ui_auth
+def submit_feedback(alert_id: int):
+    """Store or update operator feedback for an alert.
+
+    Body: {"rating": "up"|"down"|"meh", "comment": "..."}  (comment optional)
+    One feedback record per alert — subsequent POSTs overwrite the previous rating.
+    """
+    data = request.get_json(silent=True)
+    if not data or not isinstance(data, dict):
+        return jsonify({"error": "invalid request"}), 400
+
+    rating = str(data.get("rating", "")).strip().lower()
+    if rating not in _VALID_RATINGS:
+        return jsonify({"error": f"rating must be one of: {', '.join(sorted(_VALID_RATINGS))}"}), 400
+
+    comment_raw = data.get("comment")
+    comment = str(comment_raw).strip()[:500] if comment_raw is not None else None
+
+    # Verify alert exists
+    try:
+        conn = _get_conn()
+        if not conn.execute("SELECT 1 FROM alerts WHERE id = ?", (alert_id,)).fetchone():
+            return jsonify({"error": "not found"}), 404
+    except Exception as exc:
+        logger.warning("Feedback alert lookup failed: %s", type(exc).__name__)
+        return jsonify({"error": "internal error"}), 500
+
+    if add_feedback(alert_id, rating, comment):
+        return jsonify({"status": "ok", "alert_id": alert_id, "rating": rating})
+    return jsonify({"error": "failed to save feedback"}), 500
+
+
+@api_bp.route("/alerts/<int:alert_id>/feedback", methods=["GET"])
+@require_ui_auth
+def get_feedback(alert_id: int):
+    """Return the operator feedback for an alert, or null if none submitted."""
+    result = get_feedback_for_alert(alert_id)
+    return jsonify({"feedback": result})
+
+
+@api_bp.route("/feedback/export", methods=["GET"])
+@require_ui_auth
+def feedback_export():
+    """Export all feedback records joined with alert and AI data.
+
+    Returns a JSON array suitable for RAG ingestion or model fine-tuning.
+    Each record contains alert metadata, AI insight, and operator rating+comment.
+    """
+    records = export_feedback()
+    return jsonify({"feedback": records, "count": len(records)})
 
 
 # ---------------------------------------------------------------------------

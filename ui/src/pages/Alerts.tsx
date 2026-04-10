@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Trash2, AlertTriangle } from "lucide-react";
+import { Trash2, AlertTriangle, ThumbsUp, ThumbsDown, Minus } from "lucide-react";
 import { SeverityBadge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { SkeletonTable } from "../components/Skeleton";
@@ -10,10 +10,18 @@ import {
   formatRelativeTime,
   formatTimestamp,
 } from "../hooks/useRelativeTime";
-import { getAlerts, deleteAlert, deleteAlerts } from "../lib/api";
+import { getAlerts, deleteAlert, deleteAlerts, submitFeedback } from "../lib/api";
+
+type FeedbackRating = "up" | "down" | "meh";
+
+const RATING_ICONS: Record<FeedbackRating, { icon: React.ReactNode; label: string }> = {
+  up:   { icon: <ThumbsUp  className="h-3.5 w-3.5" />, label: "Helpful" },
+  down: { icon: <ThumbsDown className="h-3.5 w-3.5" />, label: "Not helpful" },
+  meh:  { icon: <Minus     className="h-3.5 w-3.5" />, label: "Unsure" },
+};
 
 /**
- * Alerts list — paginated, filterable by service, with delete support.
+ * Alerts list — paginated, filterable by service, with delete and AI feedback support.
  */
 export function Alerts() {
   const navigate = useNavigate();
@@ -34,6 +42,11 @@ export function Alerts() {
     null | "filtered" | "all"
   >(null);
   const [batchDeleting, setBatchDeleting] = useState(false);
+
+  // Feedback state — expanded alert ID + per-alert submitted ratings
+  const [expandedAlert, setExpandedAlert] = useState<number | null>(null);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState<number | null>(null);
+  const [submittedRatings, setSubmittedRatings] = useState<Record<number, FeedbackRating>>({});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -81,6 +94,18 @@ export function Alerts() {
       // Ignore
     } finally {
       setBatchDeleting(false);
+    }
+  };
+
+  const handleFeedback = async (alertId: number, rating: FeedbackRating) => {
+    setFeedbackSubmitting(alertId);
+    try {
+      await submitFeedback(alertId, rating);
+      setSubmittedRatings((prev) => ({ ...prev, [alertId]: rating }));
+    } catch {
+      // Ignore — feedback is best-effort
+    } finally {
+      setFeedbackSubmitting(null);
     }
   };
 
@@ -199,59 +224,100 @@ export function Alerts() {
               No alerts match the current filters.
             </div>
           ) : (
-            data.alerts.map((alert) => (
-              <div
-                key={alert.id as number}
-                className={`grid items-center gap-2 border-b border-[var(--color-border)] px-4 py-3 transition-colors duration-100 hover:bg-[var(--color-surface-raised)] md:grid-cols-[4rem_6rem_5rem_1fr_5rem_6rem_2.5rem] severity-bar-${alert.severity as string}`}
-              >
-                <span className="font-tabular text-sm text-[var(--color-text-muted)]">
-                  #{alert.id as number}
-                </span>
-                <span
-                  className={`truncate text-sm font-medium ${alert.incident_id ? "cursor-pointer hover:text-[var(--color-primary)]" : ""}`}
-                  onClick={
-                    alert.incident_id
-                      ? () => navigate(`/incidents/${alert.incident_id}`)
-                      : undefined
-                  }
-                >
-                  {alert.service as string}
-                </span>
-                <span className="text-xs text-[var(--color-text-muted)]">
-                  {alert.source as string}
-                </span>
-                <span className="truncate text-sm text-[var(--color-text-secondary)]">
-                  {alert.message as string}
-                </span>
-                <SeverityBadge
-                  severity={
-                    alert.severity as
-                      | "critical"
-                      | "warning"
-                      | "info"
-                      | "unknown"
-                  }
-                />
-                <span
-                  className="font-tabular text-xs text-[var(--color-text-muted)]"
-                  title={formatTimestamp(alert.ts as number)}
-                >
-                  {formatRelativeTime(alert.ts as number)}
-                </span>
-                <button
-                  className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--severity-critical-bg)] hover:text-[var(--severity-critical)] transition-colors cursor-pointer disabled:opacity-30"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteOne(alert.id as number);
-                  }}
-                  disabled={deleting === (alert.id as number)}
-                  aria-label={`Delete alert ${alert.id}`}
-                  title="Delete alert"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))
+            data.alerts.map((alert) => {
+              const alertId = alert.id as number;
+              const isExpanded = expandedAlert === alertId;
+              const currentRating = submittedRatings[alertId];
+              const insight = alert.insight as string | undefined;
+
+              return (
+                <div key={alertId} className={`border-b border-[var(--color-border)] severity-bar-${alert.severity as string}`}>
+                  {/* Main row */}
+                  <div
+                    className="grid cursor-pointer items-center gap-2 px-4 py-3 transition-colors duration-100 hover:bg-[var(--color-surface-raised)] md:grid-cols-[4rem_6rem_5rem_1fr_5rem_6rem_2.5rem]"
+                    onClick={() => setExpandedAlert(isExpanded ? null : alertId)}
+                  >
+                    <span className="font-tabular text-sm text-[var(--color-text-muted)]">
+                      #{alertId}
+                    </span>
+                    <span
+                      className={`truncate text-sm font-medium ${alert.incident_id ? "hover:text-[var(--color-primary)]" : ""}`}
+                      onClick={
+                        alert.incident_id
+                          ? (e) => { e.stopPropagation(); navigate(`/incidents/${alert.incident_id}`); }
+                          : undefined
+                      }
+                    >
+                      {alert.service as string}
+                    </span>
+                    <span className="text-xs text-[var(--color-text-muted)]">
+                      {alert.source as string}
+                    </span>
+                    <span className="truncate text-sm text-[var(--color-text-secondary)]">
+                      {alert.message as string}
+                    </span>
+                    <SeverityBadge severity={alert.severity as "critical" | "warning" | "info" | "unknown"} />
+                    <span
+                      className="font-tabular text-xs text-[var(--color-text-muted)]"
+                      title={formatTimestamp(alert.ts as number)}
+                    >
+                      {formatRelativeTime(alert.ts as number)}
+                    </span>
+                    <button
+                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--severity-critical-bg)] hover:text-[var(--severity-critical)] transition-colors cursor-pointer disabled:opacity-30"
+                      onClick={(e) => { e.stopPropagation(); handleDeleteOne(alertId); }}
+                      disabled={deleting === alertId}
+                      aria-label={`Delete alert ${alertId}`}
+                      title="Delete alert"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Expanded feedback panel */}
+                  {isExpanded && (
+                    <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-raised)] px-4 py-3">
+                      {insight ? (
+                        <p className="mb-3 text-sm text-[var(--color-text-secondary)]">
+                          <span className="font-medium text-[var(--color-text)]">AI insight: </span>
+                          {insight}
+                        </p>
+                      ) : (
+                        <p className="mb-3 text-xs text-[var(--color-text-muted)]">No AI insight recorded for this alert.</p>
+                      )}
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--color-text-muted)]">Was this insight helpful?</span>
+                        {(["up", "down", "meh"] as FeedbackRating[]).map((r) => {
+                          const { icon, label } = RATING_ICONS[r];
+                          const isActive = currentRating === r;
+                          return (
+                            <button
+                              key={r}
+                              title={label}
+                              aria-label={label}
+                              disabled={feedbackSubmitting === alertId}
+                              onClick={() => handleFeedback(alertId, r)}
+                              className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors disabled:opacity-40 cursor-pointer
+                                ${isActive
+                                  ? "bg-[var(--color-primary)] text-white"
+                                  : "border border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                                }`}
+                            >
+                              {icon}
+                              {label}
+                            </button>
+                          );
+                        })}
+                        {currentRating && (
+                          <span className="ml-1 text-xs text-[var(--color-text-muted)]">Saved</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
         </div>
       )}

@@ -19,6 +19,7 @@ wrong in their container logs.
 
 import logging
 import os
+import re
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -189,7 +190,6 @@ def validate_config() -> list[str]:
     # -----------------------------------------------------------------
     quiet = os.environ.get("QUIET_HOURS", "").strip()
     if quiet:
-        import re
         if not re.match(r"^\d{1,2}:\d{2}-\d{1,2}:\d{2}$", quiet):
             warn(
                 f"QUIET_HOURS={quiet!r} doesn't match expected format HH:MM-HH:MM. "
@@ -261,7 +261,7 @@ def validate_config() -> list[str]:
         "DISCORD_DISABLED", "SLACK_DISABLED", "TELEGRAM_DISABLED",
         "NTFY_DISABLED", "EMAIL_DISABLED", "WHATSAPP_DISABLED",
         "SIGNAL_DISABLED", "GOTIFY_DISABLED", "MATRIX_DISABLED",
-        "IMESSAGE_DISABLED",
+        "IMESSAGE_DISABLED", "MORNING_BRIEF_ENABLED",
     ]
     for var in _BOOL_VARS:
         val = os.environ.get(var, "")
@@ -271,6 +271,47 @@ def validate_config() -> list[str]:
                 f"only 'true' or 'false' (case-insensitive) are accepted. "
                 f"Currently {var} is NOT active."
             )
+
+    # -----------------------------------------------------------------
+    # 14. MORNING_BRIEF_TIME format — must be HH:MM
+    # -----------------------------------------------------------------
+    brief_time = os.environ.get("MORNING_BRIEF_TIME", "").strip()
+    if brief_time:
+        if not re.match(r"^\d{1,2}:\d{2}$", brief_time):
+            warn(
+                f"MORNING_BRIEF_TIME={brief_time!r} doesn't match expected format HH:MM. "
+                f"Example: MORNING_BRIEF_TIME=07:00"
+            )
+        else:
+            try:
+                h, m = int(brief_time.split(":")[0]), int(brief_time.split(":")[1])
+                if not (0 <= h <= 23 and 0 <= m <= 59):
+                    warn(
+                        f"MORNING_BRIEF_TIME={brief_time!r} is out of range — "
+                        f"hour must be 0-23, minute must be 0-59."
+                    )
+            except ValueError:
+                pass  # already caught by regex above
+
+    # -----------------------------------------------------------------
+    # 15. REVERSE_TRIAGE_* script paths — must exist and be files
+    # -----------------------------------------------------------------
+    triage_prefix = "REVERSE_TRIAGE_"
+    triage_skip = {"REVERSE_TRIAGE_TIMEOUT"}
+    for key, val in os.environ.items():
+        if key.startswith(triage_prefix) and key not in triage_skip and val:
+            import pathlib
+            path = pathlib.Path(val)
+            if not path.is_absolute():
+                warn(
+                    f"{key}={val!r} is not an absolute path — "
+                    f"reverse triage scripts must use absolute paths."
+                )
+            elif not path.is_file():
+                warn(
+                    f"{key}={val!r} does not exist or is not a file — "
+                    f"reverse triage will be skipped for this service until the path is valid."
+                )
 
     # -----------------------------------------------------------------
     # Summary

@@ -285,6 +285,35 @@ def _migrate_v5(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_v6(conn: sqlite3.Connection) -> None:
+    """v6: Morning Brief log — tracks daily brief sends to prevent double-dispatch."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS morning_briefs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts          REAL    NOT NULL,
+            date_sent   TEXT    NOT NULL UNIQUE,
+            alert_count INTEGER NOT NULL DEFAULT 0,
+            insight     TEXT
+        )
+    """)
+
+
+def _migrate_v7(conn: sqlite3.Connection) -> None:
+    """v7: Alert feedback — operator ratings on AI insights (one per alert)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alert_feedback (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            alert_id INTEGER NOT NULL UNIQUE REFERENCES alerts(id) ON DELETE CASCADE,
+            ts       REAL    NOT NULL,
+            rating   TEXT    NOT NULL,
+            comment  TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_feedback_alert ON alert_feedback (alert_id)"
+    )
+
+
 # Migration registry — index is the target version number.
 # Entry 0 and 1 are None (v1 is the base schema created by init_db).
 _MIGRATIONS: list = [
@@ -294,6 +323,8 @@ _MIGRATIONS: list = [
     _migrate_v3,  # v3 — incident notes table
     _migrate_v4,  # v4 — UI config table (first-run password setup)
     _migrate_v5,  # v5 — persistent storm buffer
+    _migrate_v6,  # v6 — morning brief log
+    _migrate_v7,  # v7 — alert feedback
 ]
 
 
@@ -1057,3 +1088,149 @@ def clear_storm_buffer(row_ids: list[int] | None = None) -> None:
         conn.commit()
     except Exception as exc:
         logger.warning("Failed to clear storm buffer: %s", type(exc).__name__)
+
+
+# ---------------------------------------------------------------------------
+# Morning Brief — daily digest of quiet-hours activity
+# ---------------------------------------------------------------------------
+
+def get_alerts_in_window(ts_start: float, ts_end: float) -> list[dict]:
+    """Return all alerts fired between ts_start and ts_end (Unix timestamps).
+
+    Returns empty list on DB error or when DB is unavailable.
+    """
+    if not _db_initialized:
+        return []
+    try:
+        conn = _get_conn()
+        rows = conn.execute(
+            """
+            SELECT ts, source, service, status, severity, message, insight
+            FROM alerts
+            WHERE ts >= ? AND ts < ?
+            ORDER BY ts ASC
+            """,
+            (ts_start, ts_end),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.warning("get_alerts_in_window failed: %s", type(exc).__name__)
+        return []
+
+
+def has_sent_brief_today(date_str: str) -> bool:
+    """Return True if a morning brief was already sent for date_str (YYYY-MM-DD)."""
+    if not _db_initialized:
+        return False
+    try:
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT 1 FROM morning_briefs WHERE date_sent = ?", (date_str,)
+        ).fetchone()
+        return row is not None
+    except Exception as exc:
+        logger.warning("has_sent_brief_today failed: %s", type(exc).__name__)
+        return False  # fail open — allow send on DB error
+
+
+def record_brief_sent(date_str: str, alert_count: int, insight: str | None) -> None:
+    """Record a successfully dispatched morning brief. Fails silently."""
+    if not _db_initialized:
+        return
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "INSERT OR IGNORE INTO morning_briefs (ts, date_sent, alert_count, insight) VALUES (?, ?, ?, ?)",
+            (time.time(), date_str, alert_count, insight),
+        )
+        conn.commit()
+    except Exception as exc:
+        logger.warning("record_brief_sent failed: %s", type(exc).__name__)
+
+
+# ---------------------------------------------------------------------------
+# Alert feedback — operator ratings on AI insights
+# ---------------------------------------------------------------------------
+
+_VALID_RATINGS = frozenset({"up", "down", "meh"})
+
+
+def add_feedback(alert_id: int, rating: str, comment: str | None) -> bool:
+    """
+    Store or update operator feedback for an alert. Returns True on success.
+
+    Uses INSERT OR REPLACE so rating updates are idempotent. One feedback
+    record per alert — subsequent calls overwrite the previous rating.
+    Rating must be one of: up, down, meh.
+    """
+    if not _db_initialized:
+        return False
+    if rating not in _VALID_RATINGS:
+        return False
+    try:
+        conn = _get_conn()
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO alert_feedback (alert_id, ts, rating, comment)
+            VALUES (?, ?, ?, ?)
+            """,
+            (alert_id, time.time(), rating, comment[:500] if comment else None),
+        )
+        conn.commit()
+        return True
+    except Exception as exc:
+        logger.warning("add_feedback failed: %s", type(exc).__name__)
+        return False
+
+
+def get_feedback_for_alert(alert_id: int) -> dict | None:
+    """Return feedback for an alert, or None if no feedback exists."""
+    if not _db_initialized:
+        return None
+    try:
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT id, alert_id, ts, rating, comment FROM alert_feedback WHERE alert_id = ?",
+            (alert_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    except Exception as exc:
+        logger.warning("get_feedback_for_alert failed: %s", type(exc).__name__)
+        return None
+
+
+def export_feedback() -> list[dict]:
+    """
+    Return all feedback joined with alert+AI data for RAG / fine-tuning export.
+
+    Each record contains: alert metadata, AI insight, operator rating, comment.
+    Returns empty list on DB error.
+    """
+    if not _db_initialized:
+        return []
+    try:
+        conn = _get_conn()
+        rows = conn.execute(
+            """
+            SELECT
+                f.id          AS feedback_id,
+                f.ts          AS feedback_ts,
+                f.rating,
+                f.comment,
+                a.id          AS alert_id,
+                a.ts          AS alert_ts,
+                a.source,
+                a.service,
+                a.status,
+                a.severity,
+                a.message,
+                a.insight
+            FROM alert_feedback f
+            JOIN alerts a ON a.id = f.alert_id
+            ORDER BY f.ts DESC
+            """,
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.warning("export_feedback failed: %s", type(exc).__name__)
+        return []

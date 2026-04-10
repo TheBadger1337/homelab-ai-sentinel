@@ -2,12 +2,14 @@
 
 # 🛡️ Homelab AI Sentinel
 
-### Your monitoring stack fires a webhook. Sentinel fires back with a diagnosis.
+### Your monitoring stack knows when things break. Sentinel tells you why.
+
+Webhook in, AI diagnosis out. Supports 11 alert sources, 10 notification platforms, and runs free on Gemini's free tier or fully local on Ollama. One `docker compose up` — no agents, no manual schema changes. Built to stay running.
 
 [![Python](https://img.shields.io/badge/python-3.12-3776ab?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ed?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e?style=flat-square)](LICENSE)
-[![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-f97316?style=flat-square)](https://aistudio.google.com)
+[![AI](https://img.shields.io/badge/AI-model%20agnostic-f97316?style=flat-square)](https://aistudio.google.com)
 
 </div>
 
@@ -828,7 +830,7 @@ Planned scope:
 
 ### What is Homelab AI Sentinel?
 
-Homelab AI Sentinel is an AI-powered webhook receiver for homelab monitoring. Your monitoring tool (Uptime Kuma, Grafana, Prometheus, Zabbix, etc.) sends an alert webhook. Sentinel parses it, sends the alert data to an AI model, and forwards an enriched notification — with a plain-English diagnosis and specific commands to run first — to your chosen notification platform (Discord, Slack, Telegram, etc.).
+Homelab AI Sentinel is an AI-powered alert enrichment layer for homelab monitoring. Your monitoring stack knows when things break — Sentinel tells you why. Point any monitoring tool (Uptime Kuma, Grafana, Prometheus, Zabbix, etc.) at Sentinel's webhook endpoint. Sentinel parses the payload, asks an AI model to diagnose it, and dispatches a plain-English explanation with specific remediation steps to whichever notification platforms you use (Discord, Slack, Telegram, and 7 more). It runs free on Gemini's free tier or fully locally on Ollama — no cloud dependency required.
 
 ### How is Sentinel different from just using a Discord webhook directly?
 

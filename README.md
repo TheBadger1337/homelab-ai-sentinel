@@ -72,7 +72,7 @@ process is not running rather than overloaded.
 | | |
 |---|---|
 | 🤖 **Discord Bot Included** | `bot/` — reference Discord bot that connects to any OpenAI-compatible backend (Ollama, LM Studio, OpenAI). Chat, context, `!clear`. Full-featured version with voice, streaming AI, and Claude Code bridge in the [setup guide](#premium-guides). |
-| 🔔 **10 Notification Platforms** | Discord · Slack · Telegram · Ntfy · Email · WhatsApp · Signal · Gotify · Matrix · iMessage — configure any combination, all optional |
+| 🔔 **10 Notification Platforms** | Discord · Slack · Telegram · Ntfy · Email · WhatsApp · Signal · Gotify · Matrix · iMessage — configure any combination, all optional · Teams / Pushover / PagerDuty *(v2.7)* |
 | 🔍 **11 Alert Source Parsers** | Uptime Kuma · Grafana · Prometheus · Healthchecks.io · Netdata · Zabbix · Checkmk · WUD · Docker Events · Glances · Generic JSON — auto-detected, zero config |
 | 🤖 **AI Enrichment** | **Gemini 2.5 Flash** by default (free tier sufficient for homelab volumes) — swap to Claude, GPT-4o, Grok, Groq, or any local model via Ollama/LM Studio/llama.cpp/vLLM |
 | 🔒 **Zero System Access** | Stateless and read-only. Sentinel receives JSON, calls an AI API, sends text. The AI cannot restart services, run commands, or read your filesystem |
@@ -356,8 +356,11 @@ Configure any combination. All platforms are opt-in — unconfigured platforms a
 | `GOTIFY_URL` + `GOTIFY_APP_TOKEN` | Gotify | Self-hosted Gotify server URL + application token |
 | `MATRIX_HOMESERVER` · `MATRIX_ACCESS_TOKEN` · `MATRIX_ROOM_ID` | Matrix | Homeserver URL, bot access token, room ID |
 | `IMESSAGE_URL` · `IMESSAGE_PASSWORD` · `IMESSAGE_TO` | iMessage | Bluebubbles server (requires Mac). `IMESSAGE_TO`: phone number or Apple ID email |
+| `TEAMS_WEBHOOK_URL` | Microsoft Teams | Incoming webhook URL *(v2.7 — planned)* |
+| `PUSHOVER_USER_KEY` + `PUSHOVER_API_TOKEN` | Pushover | User key + application API token *(v2.7 — planned)* |
+| `PAGERDUTY_ROUTING_KEY` | PagerDuty | Events API v2 integration key *(v2.7 — planned)* |
 
-To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 10 platforms support `{PLATFORM}_DISABLED`.
+To disable a platform without removing its config: `DISCORD_DISABLED=true`. All platforms support `{PLATFORM}_DISABLED`.
 
 ### AI Configuration
 
@@ -469,8 +472,13 @@ Auto-detected from the payload — no configuration required. Point any monitori
 | **Docker Events / Portainer** | `Type` + `Action` + `Actor` (capital keys) |
 | **Glances** | `glances_host` + `glances_type` (via poller sidecar — see below) |
 | **Generic JSON** | Any payload — looks for `service`/`name`, `status`/`state`, `message`/`msg` |
+| **Nagios** | *(v2.7 — planned)* |
+| **LibreNMS** | *(v2.7 — planned)* |
+| **Home Assistant** | *(v2.7 — planned)* |
+| **Proxmox VE** | *(v3.0 — with Proxmox API integration)* |
+| **TrueNAS** | *(community-tested, deferred)* |
 
-Any tool that POSTs JSON works via the generic parser. Extra fields are passed to the AI as context — more detail means better analysis.
+Any tool that POSTs JSON works via the generic parser. Extra fields are passed to the AI as context — more detail means better analysis. Adding a new parser is straightforward — see `alert_parser.py` for the detection + parse pattern.
 
 ### Quick Wiring
 
@@ -781,35 +789,38 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 - RAG feedback export — `GET /api/feedback/export/jsonl` downloads operator-rated AI insights as JSONL in OpenAI/Ollama chat format for local model fine-tuning. Only `up`-rated records are included by default (confirmed good insights); pass `?rating=all` for everything. The JSON export (`/api/feedback/export`) gained a `?rating=` filter too.
 
 **v2.7 — planned:**
-- Parser coverage: Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant
-- Notification targets: Teams, Pushover, PagerDuty
-- Smarter correlation: time-decay weighting on correlated incidents so old upstream incidents don't absorb unrelated new alerts
+- Parser coverage: **Nagios**, **LibreNMS**, **Home Assistant** *(live-tested)*
+- Notification targets: **Microsoft Teams**, **Pushover**, **PagerDuty**
+- Smarter correlation: time-decay weighting so old upstream incidents don't absorb unrelated new alerts
+
+*Parsers and notification targets marked as community-tested welcome contributions — the detection + parse pattern in `alert_parser.py` is straightforward to extend. Proxmox VE parser is deferred to v3.0 where it ships alongside the Proxmox API integration. TrueNAS deferred until live fixtures are available.*
 
 **v2.8 — planned:**
-- Runbook generation — when no runbook exists for a service, AI generates a starter runbook from alert history and incident patterns; operator reviews and saves it to disk
-- Alert clustering — group semantically similar alerts from different services into a single AI call when storm mode is active; reduces token spend on correlated outages
+- Runbook generation — when no runbook exists for a service, the AI generates a starter runbook from alert history and incident patterns; operator reviews and saves it to disk
+- Alert clustering — group semantically similar alerts from different services into a single AI call during storm mode; reduces token spend on correlated outages
 
 **v2.9 — planned:**
-- Anomaly detection — lightweight statistical baseline per service (alert frequency, severity distribution, time-of-day patterns); AI prompt is flagged when current alert deviates significantly from baseline
-- Feedback-loop fine-tuning CLI — `python -m sentinel.export_rag` wraps `GET /api/feedback/export/jsonl` for scripted Ollama `create` pipelines; includes a model validation step that sends a sample alert and checks the fine-tuned response quality
+- Anomaly detection — lightweight statistical baseline per service (alert frequency, severity distribution, time-of-day patterns); AI prompt flagged when current alert deviates significantly
+- Feedback fine-tune CLI — `python -m sentinel.export_rag` wraps `GET /api/feedback/export/jsonl` for scripted Ollama `create` pipelines with a sample-alert validation step
 
 ---
 
 **v3.0 — contextual infrastructure integration:**
 
-The identity stays the same: Sentinel receives webhooks, enriches with AI, dispatches. v3.0 adds optional *read* access to your infrastructure so the AI has real evidence rather than inference.
+Sentinel's identity stays the same: receive webhooks, enrich with AI, dispatch. v3.0 adds optional *read* access to your infrastructure so the AI has real evidence instead of inference.
 
-> Today the AI says: *"nginx is likely down due to resource exhaustion — check logs."*
-> With v3.0 it says: *"nginx OOM-killed at 512 MB limit (exit code 137), 14th restart in 2 hours. Last log line: `worker process exited on signal 9`. Your compose memory limit is likely too low for current traffic."*
+> Today: *"nginx is likely down due to resource exhaustion — check logs."*
+>
+> v3.0: *"nginx OOM-killed at 512 MB limit (exit code 137), 14th restart in 2 hours. Last log: `worker process exited on signal 9`. Your compose memory limit is too low for current traffic."*
 
 Planned scope:
 
-- `DOCKER_SOCKET=/var/run/docker.sock` — when an alert fires for a containerised service, Sentinel fetches the last 50 log lines, container restart count, exit code, and memory/CPU at crash time; injected as enrichment context into the AI prompt (highest-priority slot, same architecture as reverse triage)
-- `PROXMOX_URL` + `PROXMOX_API_TOKEN` — when a Proxmox-sourced alert fires, fetch node/VM/CT resource state at alert time; lets the AI distinguish "this VM is thrashing" from "the whole node is down"
-- Auto-topology from Docker labels — `SENTINEL_DEPENDS_ON=nginx,postgres` Compose label generates topology automatically; no `topology.yaml` required for container-native deployments
-- Container-aware synthetic shadowing — dead/exited containers trigger shadow alerts automatically without requiring an entry in `shadows.yaml`
+- `DOCKER_SOCKET=/var/run/docker.sock` — at alert time, fetch container logs (last 50 lines), restart count, exit code, memory/CPU at crash; injected into the AI prompt at the highest-priority context slot (same architecture as reverse triage — automated instead of manual)
+- `PROXMOX_URL` + `PROXMOX_API_TOKEN` — when a Proxmox alert fires, fetch node/VM/CT resource state so the AI can distinguish "this VM is thrashing" from "the whole node is down"; ships with the Proxmox VE parser
+- Auto-topology from Docker Compose labels — `SENTINEL_DEPENDS_ON=nginx,postgres` label generates topology automatically; no `topology.yaml` needed for container-native deployments
+- Container-aware synthetic shadowing — dead/exited containers trigger shadow alerts automatically without a `shadows.yaml` entry
 
-**Explicitly out of scope for v3.0:** Active HTTP probes, metric collection, scheduled polling. Those are what Uptime Kuma and Prometheus do. Sentinel does not replace your monitoring tool — it makes what your monitoring tool reports dramatically more actionable.
+**Explicitly out of scope for v3.0:** Active HTTP probes, metric collection, scheduled polling. Sentinel does not replace your monitoring tool — it makes what your monitoring tool reports dramatically more actionable.
 
 ---
 
@@ -837,7 +848,7 @@ Yes. Set `AI_PROVIDER=ollama` and `OLLAMA_BASE_URL=http://your-ollama-host:11434
 
 ### What monitoring tools does Sentinel work with?
 
-Uptime Kuma (all versions), Grafana (alertmanager-style webhooks), Prometheus Alertmanager, Healthchecks.io, Netdata, Zabbix, Checkmk, Glances, Docker Events (via webhook relay), WUD (What's Up Docker), and any tool that can POST JSON to an HTTP endpoint (generic parser auto-detects format). New parsers can be added in `app/alert_parser.py`.
+Uptime Kuma (all versions), Grafana (alertmanager-style webhooks), Prometheus Alertmanager, Healthchecks.io, Netdata, Zabbix, Checkmk, Glances, Docker Events (via webhook relay), WUD (What's Up Docker), and any tool that can POST JSON to an HTTP endpoint (generic parser auto-detects format). Nagios, LibreNMS, and Home Assistant parsers are coming in v2.7. New parsers can be added in `app/alert_parser.py` — the detection + parse pattern is straightforward to extend.
 
 ### How is Sentinel different from Alertmanager?
 
@@ -873,7 +884,7 @@ Runbooks are markdown files you write that describe how to handle specific servi
 
 ### Does Sentinel work with multiple notification platforms simultaneously?
 
-Yes. Configure any combination of the 10 supported platforms: Discord, Slack, Telegram, Ntfy, Email, WhatsApp (Cloud API), Signal (signal-cli), Gotify, Matrix, and iMessage (macOS only). Each platform is independent and opt-in. If one platform fails to deliver, the others are not affected, and the failed delivery is queued in the dead letter queue for retry.
+Yes. Configure any combination of the 10 supported platforms: Discord, Slack, Telegram, Ntfy, Email, WhatsApp (Cloud API), Signal (signal-cli), Gotify, Matrix, and iMessage (macOS only). Microsoft Teams, Pushover, and PagerDuty are coming in v2.7. Each platform is independent and opt-in — if one fails to deliver, the others are unaffected, and the failed delivery is queued in the dead letter queue for retry.
 
 ### What is the dead letter queue?
 

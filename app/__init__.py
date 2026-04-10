@@ -200,9 +200,11 @@ def create_app() -> Flask:
         if rel:
             try:
                 target = (static_dir / rel).resolve()
-                target.relative_to(static_dir.resolve())  # raises ValueError if outside static_dir
+                # safe_rel is derived from the filesystem-resolved path, not user input,
+                # breaking the taint chain for CodeQL py/path-injection.
+                safe_rel = target.relative_to(static_dir.resolve())  # raises ValueError if outside
                 if target.is_file():
-                    return send_from_directory(str(static_dir), rel)
+                    return send_from_directory(str(static_dir), str(safe_rel))
             except ValueError:
                 pass  # path traversal attempt — fall through to SPA fallback
         if index.is_file():

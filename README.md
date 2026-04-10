@@ -375,6 +375,7 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `OPENAI_BASE_URL` | — | Base URL (e.g. `http://192.168.1.x:11434/v1` for Ollama) |
 | `OPENAI_RPM` | `0` | OpenAI-compat max AI calls per minute. `0` disables (local inference has no quota). |
 | `OPENAI_TIMEOUT` | `30` | OpenAI-compat request timeout in seconds |
+| `SENTINEL_STRICT_JSON` | `false` | Set to `true` to log which JSON extraction level was used per response (0=clean, 1=fence stripped, 2=substring, 3=regex). Useful when tuning local model prompts to produce cleaner output. |
 
 ### Operating Mode
 
@@ -709,6 +710,9 @@ All guides: [sercrat.gumroad.com](https://sercrat.gumroad.com/)
 **v2.2 — complete:**
 - `WHITELIST_SUBNET` — IP allowlist gate on the webhook endpoint (comma-separated CIDR networks, e.g. `192.168.1.0/24,10.0.0.0/8`); blocked IPs logged to security audit; fail-open on malformed entries so a bad CIDR string never silently locks you out
 - Live SSE topology — real-time node state on the topology map without page reload: alerting nodes glow with their severity colour, cascade-impacted downstream services dim with a warning icon, dependency edges animate to trace the failure propagation path
+
+**v2.3 — complete:**
+- Strict JSON extraction — four-level fallback chain in `_extract_json()`: direct parse → markdown fence strip → substring extraction → regex field recovery. Local models that wrap responses in prose or markdown no longer produce silent failures. `SENTINEL_STRICT_JSON=true` logs which extraction level fired for prompt-tuning diagnostics.
 
 **Planned:**
 - Nagios, LibreNMS, Proxmox VE, TrueNAS, Home Assistant parsers

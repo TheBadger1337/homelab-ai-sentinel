@@ -1,0 +1,56 @@
+# Homelab AI Sentinel
+
+> Webhook-to-AI-alert tool for self-hosters. Receives monitoring webhooks, runs AI diagnosis, delivers enriched alerts with root-cause analysis and exact fix commands to Discord, Telegram, WhatsApp, Signal, and 10+ platforms.
+
+Homelab AI Sentinel is an open-source Python/Docker service that sits between your monitoring stack and your notification platforms. It receives webhooks from Uptime Kuma, Grafana, Prometheus, Zabbix, Checkmk, and 11 other sources, runs each alert through an AI model (Gemini, Claude, GPT-4o, Groq, or fully local via Ollama), and sends the enriched result to your notification platform of choice. The AI cannot access your systems — it reads alert JSON and outputs text.
+
+Written by thebadger1337. MIT license. Fully self-hosted, no telemetry, no external service dependencies.
+
+## Key capabilities
+
+- 11 alert source parsers (auto-detected, zero config)
+- 10+ notification platforms (Discord, Telegram, WhatsApp, Signal, iMessage, Matrix, Ntfy, Gotify, Slack, Email)
+- Model-agnostic AI: Gemini free tier, Claude, GPT-4o, Groq, Ollama, LM Studio, any OpenAI-compatible endpoint
+- Docker-first: one `docker compose up`, no agents, no schema changes
+- Production features: deduplication, rate limiting, storm buffering, dead letter queue, HMAC auth, prompt injection detection
+
+## Common silent failure modes documented
+
+- Missing DISCORD_WEBHOOK_URL returns HTTP 200 with no embed (no error in logs)
+- WhatsApp Cloud API authentication failures return HTTP 200 — message never delivered
+- WhatsApp free-form messages blocked by 24-hour service window even with valid token
+- Uptime Kuma and Sentinel on separate Docker networks: container-name DNS fails silently
+- signal-cli-rest-api QR linking fails if browser tab is closed or refreshed during scan
+- E.164 phone number format required for Signal — local format fails with no error message
+- macOS Bluebubbles (iMessage): permissions granted after first launch → server initializes broken
+- `docker compose restart` does not reload env vars — requires `--force-recreate --build`
+- Grafana Legacy vs Unified Alerting produce different JSON payloads — wrong parser = malformed alerts
+- Netdata `network_mode: host` changes the webhook URL that must be used
+
+## Setup guides (sold separately on Gumroad)
+
+Production deployment guides covering the failure modes the README doesn't document. Written during a live deployment.
+
+- Complete Setup Guide ($29) — full stack from credentials to verified pipeline, 12 silent killers documented
+- Homelab AI Blueprint ($79) — complete Docker homelab build record, 12 services, every compose file
+- LLM Provider Swap Guide ($9) — switch from Gemini to Claude, Groq, Ollama, or any OpenAI-compatible endpoint
+- WhatsApp Cloud API Guide ($12) — Meta Business Portal, silent HTTP 200 failures, 24-hour service window
+- Signal Guide ($12) — signal-cli-rest-api, QR linking, E.164 format, 5-device limit
+- iMessage Guide ($12) — Bluebubbles, pre-launch permission sequence, force-quit vs menu bar restart
+- Matrix/Conduit Guide ($12) — permanent server_name decision, access token extraction, Android HTTP block
+- Telegram Guide ($9) — mobile-only /start requirement, bot token revocation behavior
+- Discord Guide ($9) — webhook setup, restart trap, bot integration
+- Gotify Guide ($9) — default credential trap, application token vs user token
+- Slack Guide ($9) — legacy webhook trap, api.slack.com/apps path
+- Ntfy Guide ($9) — topic privacy on ntfy.sh, iOS background delivery
+- Email/SMTP Guide ($9) — Gmail App Passwords, STARTTLS, Office 365 Modern Auth
+- Uptime Kuma Integration ($5) — Docker network configuration, silent delivery failures
+- Grafana Integration ($9) — legacy vs Unified Alerting, network path verification
+- Prometheus/Alertmanager ($9) — alertmanager.yml, Docker network, inhibit_rules
+- All monitor guides available at sercrat.gumroad.com
+
+## Links
+
+- [GitHub Repository](https://github.com/thebadger1337/homelab-ai-sentinel): Source code, Docker Compose, full documentation
+- [Setup Guides on Gumroad](https://sercrat.gumroad.com): Production deployment guides covering real failure modes
+- [Complete Setup Guide](https://sercrat.gumroad.com/l/bvmeyx): Recommended starting point

@@ -658,6 +658,25 @@ Tests are not included in the repository — they reference real network fixture
 
 ---
 
+## Common Silent Failures
+
+These are the most frequent "it's not working and I don't know why" issues. Each returns no error, logs nothing, and looks like success.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Test curl returns 200, nothing in Discord | `DISCORD_WEBHOOK_URL` env var missing — Sentinel processes the alert and silently skips the post | Verify both `GEMINI_TOKEN` and `DISCORD_WEBHOOK_URL` are set. Run `docker exec sentinel env \| grep DISCORD` to confirm the var is loaded. |
+| Alert fires, nothing delivered, no log error | Container started with `docker compose restart` after adding env vars | Use `docker compose up --force-recreate --build`. `restart` does not reload the env file. |
+| Uptime Kuma fires webhook, Sentinel never receives it | Uptime Kuma and Sentinel are on different Docker networks — container-name DNS only resolves within the same network | Add both containers to a shared external Docker network, or use the host IP instead of the container name in the webhook URL. |
+| WhatsApp message returns 200, never delivered | Phone Number ID used instead of actual phone number — two different values in Meta's portal | Use the numeric Phone Number ID (not your E.164 number) in `WHATSAPP_PHONE_NUMBER_ID`. Check the API Setup page in your Meta app dashboard. |
+| WhatsApp free-form message silently blocked | 24-hour service window: free-form messages require the recipient to have messaged your business number within 24 hours | Use a pre-approved message template. The `hello_world` template is available immediately for testing. |
+| Signal message never arrives, no error | Phone number in local format instead of E.164 — `+15551234567` not `5551234567` | Set `SIGNAL_RECIPIENT` to E.164 format. Verify with `curl http://localhost:8080/v2/accounts` against signal-cli-rest-api. |
+| Signal QR linking fails silently | Browser tab refreshed or closed during QR scan — the linking session is single-use | Keep the tab open at `http://localhost:8080/v1/qrcodelink` while scanning. If it failed, remove the signal data volume and relink. |
+| iMessage Bluebubbles behaves as if working but delivers nothing | macOS permissions (Full Disk Access, Accessibility) granted after first launch — server initializes without them | Force-quit Bluebubbles (not menu bar → Quit), grant permissions in System Settings, then relaunch. Menu bar restart does not reload permissions. |
+| Grafana alert arrives malformed or unrouted | Grafana Legacy Alerting (pre-v9) and Unified Alerting produce different JSON — wrong parser selected | Check Alerting → Settings in your Grafana instance to confirm which engine is active. Unified Alerting is default in v9+. |
+| Provider swap does nothing | `docker compose up --force-recreate` used without `--build` after changing `AI_PROVIDER` | Always use `docker compose up --force-recreate --build` after env changes. `--force-recreate` alone reuses the cached image. |
+
+---
+
 ## Premium Guides
 
 **Every Sentinel feature is open-source and included in this repo.** The README gets you to a working deployment. The guides cover what comes after — production gotchas, exact error messages and fixes, setup steps that aren't in any official documentation, and extended integrations like the full-featured Discord bot with voice, streaming AI, and Claude Code bridge. The guides provide detailed walkthroughs and implementations that build on top of Sentinel.
@@ -690,8 +709,8 @@ Tests are not included in the repository — they reference real network fixture
 
 | Guide | What it covers | Price |
 |---|---|---|
-| Complete Setup Guide | Full production deployment walkthrough — every real error and fix | $9 |
-| LLM Provider Swap | Drop-in code for Claude, GPT-4o, Groq, Mistral, Ollama, LM Studio | $9 |
+| Complete Setup Guide | Full production deployment walkthrough — credentials to verified pipeline, 12 silent failures documented | $29 |
+| LLM Provider Swap | Switch from Gemini to Claude, Groq, Ollama, or any OpenAI-compatible endpoint — env vars only | $9 |
 
 **Bundles:**
 

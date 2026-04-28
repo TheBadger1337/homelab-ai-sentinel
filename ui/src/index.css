@@ -1,15 +1,10 @@
 @import "tailwindcss";
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 /* ──────────────────────────────────────────────────────────────────────
-   Sentinel Design System — CSS Custom Properties
-
-   Design principles applied:
-   - ui-ux-pro-max: accessibility > interaction > performance > style
-   - frontend-design: distinctive aesthetic, NOT generic AI slop
-   - Aesthetic: Industrial observability — control room meets dark cockpit
-   - Typography: DM Sans (geometric humanist) + DM Mono (monospace pair)
-   - No external font loading — self-hosted in Docker image
-
+   Aegis UI — Sentinel Design System v1.0
+   High-Contrast Terminal aesthetic — obsidian / electric-cyan / warning-orange
+   Typography: Inter (UI) · JetBrains Mono (data, code, logs)
    All colors use semantic tokens. Themes override at :root level.
    ────────────────────────────────────────────────────────────────────── */
 
@@ -24,43 +19,43 @@
   --color-primary: var(--color-primary);
 }
 
-/* ── Dark theme (default) — deep charcoal, cyan/blue accents ── */
+/* ── Dark theme (default) — Aegis brand spec ── */
 :root,
 [data-theme="dark"] {
-  --color-bg: #0b0d14;
-  --color-surface: #12151f;
-  --color-surface-raised: #1a1e2c;
-  --color-surface-overlay: #222738;
-  --color-border: #262c40;
-  --color-border-subtle: #1d2235;
-  --color-text: #e2e4ec;
-  --color-text-secondary: #8b90a5;
-  --color-text-muted: #585e78;
-  --color-primary: #38bdf8;
-  --color-primary-hover: #7dd3fc;
-  --color-primary-muted: #0c2d4a;
+  --color-bg: #0A0A0B;
+  --color-surface: #14141A;
+  --color-surface-raised: #1C1C26;
+  --color-surface-overlay: #26263A;
+  --color-border: #262633;
+  --color-border-subtle: #1A1A26;
+  --color-text: #E8E8F0;
+  --color-text-secondary: #9090A8;
+  --color-text-muted: #5A5A78;
+  --color-primary: #00F5FF;
+  --color-primary-hover: #5CFBFF;
+  --color-primary-muted: #003D52;
 
   /* Severity — high-contrast signal colors */
-  --severity-critical: #f43f5e;
-  --severity-critical-bg: rgba(244, 63, 94, 0.1);
-  --severity-warning: #f59e0b;
-  --severity-warning-bg: rgba(245, 158, 11, 0.1);
-  --severity-info: #38bdf8;
-  --severity-info-bg: rgba(56, 189, 248, 0.1);
-  --severity-resolved: #22c55e;
-  --severity-resolved-bg: rgba(34, 197, 94, 0.1);
+  --severity-critical: #F43F5E;
+  --severity-critical-bg: rgba(244, 63, 94, 0.10);
+  --severity-warning: #FF8C00;
+  --severity-warning-bg: rgba(255, 140, 0, 0.10);
+  --severity-info: #00F5FF;
+  --severity-info-bg: rgba(0, 245, 255, 0.08);
+  --severity-resolved: #00C853;
+  --severity-resolved-bg: rgba(0, 200, 83, 0.10);
 
   /* Lifecycle tokens */
-  --lifecycle-emerging: #a78bfa;
-  --lifecycle-active: #f43f5e;
-  --lifecycle-stabilizing: #f59e0b;
-  --lifecycle-resolved: #22c55e;
+  --lifecycle-emerging: #A78BFA;
+  --lifecycle-active: #F43F5E;
+  --lifecycle-stabilizing: #FF8C00;
+  --lifecycle-resolved: #00C853;
 
   /* Focus ring — 2-4px visible (accessibility priority 1) */
-  --focus-ring: rgba(56, 189, 248, 0.5);
+  --focus-ring: rgba(0, 245, 255, 0.5);
 
   /* Atmospheric glow — subtle radial for depth */
-  --glow-primary: radial-gradient(ellipse at 50% 0%, rgba(56, 189, 248, 0.04), transparent 70%);
+  --glow-primary: radial-gradient(ellipse at 50% 0%, rgba(0, 245, 255, 0.04), transparent 70%);
   --glow-critical: radial-gradient(ellipse at 50% 0%, rgba(244, 63, 94, 0.06), transparent 60%);
 
   color-scheme: dark;
@@ -119,20 +114,20 @@
 
   --severity-critical: #fb7185;
   --severity-critical-bg: rgba(251, 113, 133, 0.08);
-  --severity-warning: #fbbf24;
-  --severity-warning-bg: rgba(251, 191, 36, 0.08);
-  --severity-info: #818cf8;
-  --severity-info-bg: rgba(129, 140, 248, 0.08);
+  --severity-warning: #FF8C00;
+  --severity-warning-bg: rgba(255, 140, 0, 0.08);
+  --severity-info: #00F5FF;
+  --severity-info-bg: rgba(0, 245, 255, 0.06);
   --severity-resolved: #4ade80;
   --severity-resolved-bg: rgba(74, 222, 128, 0.08);
 
   --lifecycle-emerging: #c4b5fd;
   --lifecycle-active: #fb7185;
-  --lifecycle-stabilizing: #fbbf24;
+  --lifecycle-stabilizing: #FF8C00;
   --lifecycle-resolved: #4ade80;
 
-  --focus-ring: rgba(129, 140, 248, 0.5);
-  --glow-primary: radial-gradient(ellipse at 50% 0%, rgba(129, 140, 248, 0.05), transparent 70%);
+  --focus-ring: rgba(0, 245, 255, 0.5);
+  --glow-primary: radial-gradient(ellipse at 50% 0%, rgba(0, 245, 255, 0.04), transparent 70%);
   --glow-critical: radial-gradient(ellipse at 50% 0%, rgba(251, 113, 133, 0.06), transparent 60%);
 
   color-scheme: dark;
@@ -151,12 +146,10 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);
-  /* DM Sans — geometric humanist, distinctive but readable at all sizes.
-     Fallback chain for when fonts aren't self-hosted (dev mode). */
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
-  font-size: 16px;
+  font-family: "Inter", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
   line-height: 1.5;
+  font-feature-settings: "ss01", "cv11";
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
@@ -166,8 +159,17 @@ body {
 }
 
 .font-mono {
-  font-family: "DM Mono", ui-monospace, SFMono-Regular, Menlo,
-    Consolas, monospace;
+  font-family: "JetBrains Mono", "DM Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ── Eyebrow — UPPERCASE tracked-out structural label ── */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
 }
 
 /* ── Focus styles (accessibility priority 1: contrast 4.5:1) ── */
@@ -323,3 +325,116 @@ body {
   fill: var(--color-bg);
   opacity: 0.85;
 }
+
+/* ── AI Briefing callout ── */
+.ai-callout {
+  background: rgba(0, 245, 255, 0.08);
+  border: 1px solid rgba(0, 245, 255, 0.25);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 4px;
+  padding: 12px 16px;
+}
+.ai-callout-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-primary);
+  margin-bottom: 6px;
+}
+
+/* ── 24h heatmap strip ── */
+.heatstrip {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 32px;
+  padding: 0 16px 4px;
+}
+.heatstrip-cell {
+  flex: 1;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.heatstrip-cell:hover { transform: scaleY(1.1); }
+.heatstrip-cell.now { outline: 1px solid var(--color-primary); outline-offset: 1px; }
+.heatstrip-axis {
+  display: flex;
+  padding: 0 16px 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+.heatstrip-axis span { flex: 1; text-align: center; }
+.heatstrip-axis span:first-child { text-align: left; }
+.heatstrip-axis span:last-child { text-align: right; }
+
+/* ── Sidebar active indicator stripe ── */
+.nav-active-stripe {
+  position: relative;
+}
+.nav-active-stripe::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--color-primary);
+  border-radius: 1px;
+}
+
+/* ── Confidence meter ── */
+.conf-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.conf-bar {
+  width: 3px;
+  height: 9px;
+  background: var(--color-border);
+  border-radius: 1px;
+}
+.conf-bar.on { background: var(--color-primary); }
+
+/* ── Filter chip rail ── */
+.filter-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 120ms ease;
+  line-height: 1;
+}
+.filter-chip:hover { border-color: var(--color-text-muted); color: var(--color-text); }
+.filter-chip.active { background: rgba(0,245,255,0.08); border-color: var(--color-primary); color: var(--color-primary); }
+
+/* ── SSE live indicator ── */
+.sse-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.sse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--severity-resolved);
+  flex-shrink: 0;
+}
+.sse-dot.disconnected { background: var(--color-text-muted); }

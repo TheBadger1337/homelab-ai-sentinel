@@ -1,14 +1,24 @@
 import { useEffect, useRef, useCallback } from "react";
 import type { SSEEvent } from "../lib/types";
 
+interface UseSSEOptions {
+  onEvent: (event: SSEEvent) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+}
+
 /**
  * Hook to subscribe to Sentinel's SSE event stream.
  * Reconnects automatically on disconnect with exponential backoff.
- * Calls onEvent for each received event.
  */
-export function useSSE(onEvent: (event: SSEEvent) => void) {
-  const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+export function useSSE(onEventOrOptions: ((event: SSEEvent) => void) | UseSSEOptions) {
+  const opts: UseSSEOptions =
+    typeof onEventOrOptions === "function"
+      ? { onEvent: onEventOrOptions }
+      : onEventOrOptions;
+
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
 
   useEffect(() => {
     let es: EventSource | null = null;
@@ -19,11 +29,15 @@ export function useSSE(onEvent: (event: SSEEvent) => void) {
       if (!mounted) return;
       es = new EventSource("/api/events");
 
+      es.onopen = () => {
+        optsRef.current.onOpen?.();
+        reconnectDelay = 1000;
+      };
+
       es.onmessage = (e) => {
         try {
           const parsed = JSON.parse(e.data) as SSEEvent;
-          onEventRef.current(parsed);
-          reconnectDelay = 1000; // reset on success
+          optsRef.current.onEvent(parsed);
         } catch {
           // Ignore malformed events
         }
@@ -31,6 +45,7 @@ export function useSSE(onEvent: (event: SSEEvent) => void) {
 
       es.onerror = () => {
         es?.close();
+        optsRef.current.onClose?.();
         if (mounted) {
           setTimeout(connect, reconnectDelay);
           reconnectDelay = Math.min(reconnectDelay * 2, 30000);

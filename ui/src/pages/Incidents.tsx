@@ -69,37 +69,45 @@ export function Incidents() {
 
   return (
     <div>
-      <h1 className="mb-6 text-lg font-semibold">Incidents</h1>
+      <div className="mb-5 flex items-end justify-between">
+        <h1 className="text-xl font-bold tracking-tight text-[var(--color-text)]">Incidents</h1>
+        <span className="font-mono font-tabular text-[12px] text-[var(--color-text-muted)]">
+          {data?.total ?? 0} total
+        </span>
+      </div>
 
-      {/* Filters */}
+      {/* Filter chip rail — replaces hidden dropdowns */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <select
-          value={statusFilter}
-          onChange={(e) => setFilter("status", e.target.value)}
-          className="h-9 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
-          aria-label="Filter by status"
-        >
-          <option value="">All Status</option>
-          <option value="open">Open</option>
-          <option value="resolved">Resolved</option>
-        </select>
-        <select
-          value={severityFilter}
-          onChange={(e) => setFilter("severity", e.target.value)}
-          className="h-9 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
-          aria-label="Filter by severity"
-        >
-          <option value="">All Severity</option>
-          <option value="critical">Critical</option>
-          <option value="warning">Warning</option>
-          <option value="info">Info</option>
-        </select>
+        {/* Status chips */}
+        {(["", "open", "resolved"] as const).map((v) => (
+          <button
+            key={v || "all-status"}
+            onClick={() => setFilter("status", v)}
+            className={`filter-chip${statusFilter === v ? " active" : ""}`}
+            aria-pressed={statusFilter === v}
+          >
+            {v || "All status"}
+          </button>
+        ))}
+        <span className="h-4 w-px bg-[var(--color-border)]" aria-hidden="true" />
+        {/* Severity chips */}
+        {(["", "critical", "warning", "info"] as const).map((v) => (
+          <button
+            key={v || "all-sev"}
+            onClick={() => setFilter("severity", v)}
+            className={`filter-chip${severityFilter === v ? " active" : ""}`}
+            aria-pressed={severityFilter === v}
+          >
+            {v || "All severity"}
+          </button>
+        ))}
+        {/* Service search */}
         <input
           type="text"
-          placeholder="Filter service..."
+          placeholder="Service…"
           value={serviceFilter}
           onChange={(e) => setFilter("service", e.target.value)}
-          className="h-9 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+          className="h-7 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 font-mono text-[12px] text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)]"
           aria-label="Filter by service name"
         />
         {(statusFilter || severityFilter || serviceFilter) && (
@@ -111,9 +119,6 @@ export function Incidents() {
             Clear
           </Button>
         )}
-        <span className="ml-auto text-xs text-[var(--color-text-muted)] font-tabular">
-          {data?.total ?? 0} incident{(data?.total ?? 0) !== 1 ? "s" : ""}
-        </span>
       </div>
 
       {/* Table */}

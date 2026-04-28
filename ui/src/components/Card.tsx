@@ -29,7 +29,7 @@ export function Card({
 
   return (
     <div
-      className={`relative rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors duration-150 ${severityBar} ${glowClass} ${
+      className={`relative rounded border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors duration-150 ${severityBar} ${glowClass} ${
         onClick
           ? "cursor-pointer active-scale hover:border-[var(--color-text-muted)]"
           : ""

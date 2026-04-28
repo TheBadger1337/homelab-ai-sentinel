@@ -13,9 +13,12 @@ import {
   Sun,
   Moon,
   Monitor,
+  Radio,
 } from "lucide-react";
 import { useTheme, type Theme } from "../hooks/useTheme";
 import { logout } from "../lib/api";
+import { useSSE } from "../hooks/useSSE";
+import type { SSEEvent } from "../lib/types";
 
 const NAV_ITEMS = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -56,7 +59,14 @@ export function Layout() {
   const location = useLocation();
   const { theme, cycleTheme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sseConnected, setSseConnected] = useState(false);
   const ThemeIcon = themeIcons[theme];
+
+  useSSE({
+    onEvent: (_event: SSEEvent) => { /* each page handles its own SSE */ },
+    onOpen: () => setSseConnected(true),
+    onClose: () => setSseConnected(false),
+  });
 
   const handleLogout = useCallback(async () => {
     try {
@@ -100,18 +110,16 @@ export function Layout() {
         aria-label="Main navigation"
       >
         {/* Brand */}
-        <div className="flex h-16 items-center gap-3 border-b border-[var(--color-border)] px-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-primary-muted)]">
+        <div className="flex h-14 items-center gap-3 border-b border-[var(--color-border)] px-4">
+          <div className="flex h-7 w-7 items-center justify-center rounded bg-[var(--color-primary-muted)]">
             <Shield className="h-4 w-4 text-[var(--color-primary)]" />
           </div>
-          <div>
-            <span className="text-sm font-bold tracking-tight">Sentinel</span>
-            <span className="ml-1.5 rounded bg-[var(--color-surface-raised)] px-1 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-              v2.0
-            </span>
-          </div>
+          <span className="text-sm font-bold tracking-tight text-[var(--color-text)]">Sentinel</span>
+          <span className="rounded bg-[var(--color-surface-raised)] border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+            v2.0
+          </span>
           <button
-            className="ml-auto rounded-md p-1.5 hover:bg-[var(--color-surface-raised)] lg:hidden cursor-pointer"
+            className="ml-auto rounded p-1.5 hover:bg-[var(--color-surface-raised)] lg:hidden cursor-pointer"
             onClick={() => setMobileOpen(false)}
             aria-label="Close navigation"
           >
@@ -121,7 +129,7 @@ export function Layout() {
 
         {/* Nav items */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -132,9 +140,9 @@ export function Layout() {
                 <button
                   key={item.path}
                   onClick={() => handleNav(item.path)}
-                  className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition-all duration-150 cursor-pointer ${
+                  className={`group relative flex w-full items-center gap-3 rounded px-3 py-2 text-[13px] font-medium transition-all duration-150 cursor-pointer ${
                     isActive
-                      ? "bg-[var(--color-primary-muted)] text-[var(--color-primary)] shadow-sm"
+                      ? "nav-active-stripe bg-[var(--color-primary-muted)] text-[var(--color-primary)]"
                       : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)]"
                   }`}
                   aria-current={isActive ? "page" : undefined}
@@ -154,10 +162,17 @@ export function Layout() {
         </nav>
 
         {/* Bottom actions */}
-        <div className="border-t border-[var(--color-border)] p-3 space-y-1">
+        <div className="border-t border-[var(--color-border)] p-3 space-y-0.5">
+          {/* SSE live indicator */}
+          <div className="sse-indicator">
+            <Radio
+              className={`h-[14px] w-[14px] shrink-0 ${sseConnected ? "text-[var(--severity-resolved)]" : "text-[var(--color-text-muted)]"}`}
+            />
+            <span>{sseConnected ? "SSE · live" : "SSE · connecting"}</span>
+          </div>
           <button
             onClick={cycleTheme}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)] transition-colors duration-150 cursor-pointer"
+            className="flex w-full items-center gap-3 rounded px-3 py-2 text-[13px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-surface-raised)] hover:text-[var(--color-text)] transition-colors duration-150 cursor-pointer"
             aria-label={`Switch theme (current: ${themeLabels[theme]})`}
           >
             <ThemeIcon className="h-[18px] w-[18px] shrink-0" />
@@ -165,7 +180,7 @@ export function Layout() {
           </button>
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--severity-critical-bg)] hover:text-[var(--severity-critical)] transition-colors duration-150 cursor-pointer"
+            className="flex w-full items-center gap-3 rounded px-3 py-2 text-[13px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--severity-critical-bg)] hover:text-[var(--severity-critical)] transition-colors duration-150 cursor-pointer"
           >
             <LogOut className="h-[18px] w-[18px] shrink-0" />
             Logout

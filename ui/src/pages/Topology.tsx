@@ -365,7 +365,7 @@ function TopologyGraph() {
   const fetchData = useCallback(async () => {
     try {
       const result = await getTopology();
-      setData(result as TopologyData);
+      setData(result as unknown as TopologyData);
     } catch {
       // Auth redirect
     } finally {

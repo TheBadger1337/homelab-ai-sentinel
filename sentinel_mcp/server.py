@@ -51,7 +51,7 @@ mcp = FastMCP(
     instructions=(
         "Query a running Homelab AI Sentinel instance. "
         "Use sentinel_health first to confirm connectivity, "
-        "then sentinel_alerts or sentinel_incidents as needed."
+        "then sentinel_alerts, sentinel_incidents, or sentinel_topology as needed."
     ),
 )
 
@@ -148,6 +148,22 @@ def sentinel_incidents(
         "limit": max(1, min(limit, 50)),
     }
     return _get("/api/mcp/incidents", params)
+
+
+@mcp.tool()
+def sentinel_topology() -> dict:
+    """
+    Return the monitored service topology graph from topology.yaml.
+
+    Shows all services Sentinel knows about, including their dependencies,
+    owners, and runbook references. Use this to understand the infrastructure
+    map before interpreting alerts or incidents.
+
+    Returns the raw topology dict plus the config file path and service count.
+    Does not require DB. Returns an empty topology with a note if no
+    topology.yaml has been configured.
+    """
+    return _get("/api/mcp/topology")
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ Endpoints:
   GET /api/mcp/health    — operational state (always available)
   GET /api/mcp/alerts    — recent alerts (requires DB)
   GET /api/mcp/incidents — open + recently resolved incidents (requires DB)
+  GET /api/mcp/topology  — monitored service graph (always available)
 """
 
 import logging
@@ -178,4 +179,37 @@ def mcp_incidents():
 
     except Exception as exc:
         logger.error("mcp /incidents error: %s", type(exc).__name__)
+        return jsonify({"error": "internal error"}), 500
+
+
+@mcp_bp.route("/topology", methods=["GET"])
+def mcp_topology():
+    """
+    Return the monitored service topology graph.
+
+    Reads topology.yaml (TOPOLOGY_FILE env var or {RUNBOOK_DIR}/topology.yaml).
+    Returns services with their dependencies, owners, and runbook references.
+    Always available — does not require DB.
+    """
+    if not _check_auth():
+        return jsonify({"error": "unauthorized"}), 401
+
+    try:
+        from .topology import _load_topology, _topology_path
+        topo = _load_topology()
+        if not topo:
+            return jsonify({
+                "topology": {},
+                "source": None,
+                "note": "No topology.yaml found. Set TOPOLOGY_FILE or place topology.yaml in RUNBOOK_DIR.",
+            }), 200
+
+        return jsonify({
+            "topology": topo,
+            "source": _topology_path(),
+            "service_count": len(topo.get("services", topo) if isinstance(topo, dict) else topo),
+        }), 200
+
+    except Exception as exc:
+        logger.error("mcp /topology error: %s", type(exc).__name__)
         return jsonify({"error": "internal error"}), 500

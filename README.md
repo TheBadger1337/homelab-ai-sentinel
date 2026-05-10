@@ -913,7 +913,28 @@ When a notification dispatch fails (network error, platform API down, rate limit
 
 ### How do I set up HMAC authentication?
 
-Set `WEBHOOK_SECRET` in `.secrets.env`. Sentinel will then require all incoming webhooks to include a valid HMAC-SHA256 signature in the `X-Sentinel-Signature` header. Uptime Kuma supports this natively (set the secret in the notification settings). For other tools, use a proxy or set the header manually. If `WEBHOOK_SECRET` is set, `/health` is also gated — pass the secret as `Authorization: Bearer <secret>`.
+Set `WEBHOOK_SECRET` in `.secrets.env`. Sentinel supports two auth modes:
+
+**HMAC mode (recommended for new integrations)** — send the `X-Sentinel-Signature` header with value `sha256=<hex>` where the hex digest is `HMAC-SHA256(key=WEBHOOK_SECRET, msg=raw_request_body)`. This is the same format GitHub webhooks use, so any tool with GitHub-compatible webhook signing works out of the box.
+
+Generate and test a signature:
+```bash
+# Generate a secret
+openssl rand -hex 32
+
+# Sign a payload (bash)
+BODY='{"test":1}'
+SECRET="your-webhook-secret"
+SIG="sha256=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')"
+curl -X POST http://localhost:5000/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-Sentinel-Signature: $SIG" \
+  -d "$BODY"
+```
+
+**Legacy mode (backward compat)** — send the raw secret in the `X-Webhook-Token` header. Kept for tools already configured this way; plain-text transmission means it should only be used over TLS or on a trusted LAN.
+
+Uptime Kuma supports the `X-Webhook-Token` header natively (set the secret in the notification settings). If `WEBHOOK_SECRET` is set, `/health` is also gated — pass the secret as `Authorization: Bearer <secret>`.
 
 ### What does the web UI show?
 

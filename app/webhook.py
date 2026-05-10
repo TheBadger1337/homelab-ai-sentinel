@@ -198,11 +198,33 @@ def _check_secret() -> bool:
     """
     Return True if the request passes secret validation.
     If WEBHOOK_SECRET is not set, all requests are allowed (open mode).
-    Uses hmac.compare_digest to prevent timing attacks.
+
+    Two modes (checked in order):
+      HMAC mode   — X-Sentinel-Signature: sha256=<hex>
+                    Validates HMAC-SHA256 of the raw request body against
+                    WEBHOOK_SECRET. Compatible with GitHub webhook format.
+                    Preferred for all new integrations.
+      Legacy mode — X-Webhook-Token: <plaintext>
+                    Plain shared-secret comparison. Kept for backward
+                    compatibility with existing integrations.
+
+    Uses hmac.compare_digest throughout to prevent timing attacks.
     """
     secret = os.environ.get("WEBHOOK_SECRET", "")
     if not secret:
         return True
+
+    # HMAC mode: X-Sentinel-Signature: sha256=<hex>
+    sig_header = request.headers.get("X-Sentinel-Signature", "")
+    if sig_header:
+        if not sig_header.startswith("sha256="):
+            return False
+        expected = "sha256=" + hmac.new(
+            secret.encode(), request.data, "sha256"
+        ).hexdigest()
+        return hmac.compare_digest(sig_header, expected)
+
+    # Legacy mode: X-Webhook-Token: <plaintext>
     provided = request.headers.get("X-Webhook-Token", "")
     return hmac.compare_digest(provided, secret)
 

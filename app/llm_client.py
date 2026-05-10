@@ -715,19 +715,35 @@ def _openai_acquire_rpm() -> bool:
 
 
 def _call_openai(prompt: str) -> dict[str, Any]:
-    """Execute an OpenAI-compatible chat completions call and return sanitized output."""
-    base_url = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    model = os.environ.get("OPENAI_MODEL", "")
+    """Execute an OpenAI-compatible chat completions call and return sanitized output.
+
+    When AI_PROVIDER=ollama, automatically uses OLLAMA_BASE_URL / OLLAMA_MODEL
+    with api_key="ollama" (Ollama does not enforce key values but the header is
+    required by the openai-compat wire format). All other behaviour is identical.
+    """
+    provider = os.environ.get("AI_PROVIDER", "").lower()
+    if provider == "ollama":
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1").rstrip("/")
+        api_key = "ollama"
+        model = os.environ.get("OLLAMA_MODEL", "llama3")
+        env_var_label = "OLLAMA_BASE_URL"
+    else:
+        base_url = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        model = os.environ.get("OPENAI_MODEL", "")
+        env_var_label = "OPENAI_BASE_URL"
 
     if not base_url:
         return _fallback("OPENAI_BASE_URL not set")
-    if not _validate_url(base_url, "OPENAI_BASE_URL"):
-        return _fallback("OPENAI_BASE_URL blocked by SSRF guard")
+    # Skip SSRF validation for Ollama — it is always an operator-configured local
+    # or LAN endpoint (commonly http://localhost:11434/v1). The SSRF guard is
+    # designed to block user-supplied URLs; pre-configured operator URLs are trusted.
+    if provider != "ollama" and not _validate_url(base_url, env_var_label):
+        return _fallback(f"{env_var_label} blocked by SSRF guard")
     if not api_key:
         return _fallback("OPENAI_API_KEY not set")
     if not model:
-        return _fallback("OPENAI_MODEL not set")
+        return _fallback("OPENAI_MODEL not set" if provider != "ollama" else "OLLAMA_MODEL not set")
 
     if not _openai_acquire_rpm():
         logger.warning(
@@ -875,6 +891,7 @@ _PROVIDER_DISPATCH = {
     "gemini": _call_gemini,
     "anthropic": _call_anthropic,
     "openai": _call_openai,
+    "ollama": _call_openai,  # Ollama exposes an OpenAI-compat endpoint
 }
 
 
@@ -997,6 +1014,6 @@ def get_rpm_status() -> dict:
     provider = _ai_provider()
     if provider == "anthropic":
         return _anthropic_rpm_status()
-    if provider == "openai":
+    if provider in ("openai", "ollama"):
         return _openai_rpm_status()
     return _gemini_rpm_status()

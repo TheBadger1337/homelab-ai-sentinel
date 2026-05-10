@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 _SENTINEL_MODES = ("minimal", "reactive", "predictive")
-_AI_PROVIDERS = ("gemini", "anthropic", "openai")
+_AI_PROVIDERS = ("gemini", "anthropic", "openai", "ollama")
 
 
 def _sentinel_mode() -> str:
@@ -40,6 +40,8 @@ def _ai_provider() -> str:
     gemini    — Gemini API via GEMINI_TOKEN (default)
     anthropic — Anthropic Messages API via ANTHROPIC_API_KEY
     openai    — Any OpenAI-compatible endpoint via OPENAI_BASE_URL + OPENAI_API_KEY
+    ollama    — Local Ollama instance via OLLAMA_BASE_URL + OLLAMA_MODEL
+                (alias for the openai-compat path with Ollama-specific defaults)
 
     Unknown values fall back to gemini with a warning logged.
     """

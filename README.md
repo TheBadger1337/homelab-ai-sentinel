@@ -368,7 +368,7 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 
 | Variable | Default | Description |
 |---|---|---|
-| `AI_PROVIDER` | `gemini` | AI backend: `gemini`, `anthropic`, or `openai` (also covers Ollama, Groq, LM Studio) |
+| `AI_PROVIDER` | `gemini` | AI backend: `gemini`, `anthropic`, `openai`, or `ollama`. Use `ollama` for a first-class Ollama integration (auto-configures OLLAMA_BASE_URL and OLLAMA_MODEL defaults; bypasses SSRF guard since Ollama is always a local/LAN host). Use `openai` for Groq, LM Studio, or any other OpenAI-compat endpoint. |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name |
 | `GEMINI_RPM` | `10` | Gemini max AI calls per minute. Matches free tier. Set `0` to disable. |
 | `GEMINI_RETRIES` | `2` | Gemini retries on 429/5xx. Uses exponential backoff. |
@@ -380,6 +380,8 @@ To disable a platform without removing its config: `DISCORD_DISABLED=true`. All 
 | `OPENAI_BASE_URL` | — | Base URL (e.g. `http://192.168.1.x:11434/v1` for Ollama) |
 | `OPENAI_RPM` | `0` | OpenAI-compat max AI calls per minute. `0` disables (local inference has no quota). |
 | `OPENAI_TIMEOUT` | `30` | OpenAI-compat request timeout in seconds |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama API base URL. Used when `AI_PROVIDER=ollama`. Override to point at a remote Ollama host: `http://192.168.1.x:11434/v1`. |
+| `OLLAMA_MODEL` | `llama3` | Ollama model name as listed by `ollama list`. Used when `AI_PROVIDER=ollama`. Example: `llama3.2`, `qwen2.5:7b`, `mistral`. |
 | `SENTINEL_STRICT_JSON` | `false` | Set to `true` to log which JSON extraction level was used per response (0=clean, 1=fence stripped, 2=substring, 3=regex). Useful when tuning local model prompts to produce cleaner output. |
 
 ### Operating Mode

@@ -1354,12 +1354,12 @@ def set_action_running(action_id: int) -> bool:
         return False
     try:
         conn = _get_conn()
-        conn.execute(
+        cur = conn.execute(
             "UPDATE pending_actions SET status = 'running' WHERE id = ? AND status = 'pending'",
             (action_id,),
         )
         conn.commit()
-        return conn.execute("SELECT changes()").fetchone()[0] > 0  # type: ignore[index]
+        return cur.rowcount > 0
     except Exception as exc:
         logger.warning("set_action_running failed: %s", type(exc).__name__)
         return False

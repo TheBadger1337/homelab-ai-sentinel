@@ -28,6 +28,7 @@ reduction, not perfect correlation.
 import atexit
 import json
 import logging
+import secrets
 import threading
 import time
 from typing import Any
@@ -158,7 +159,7 @@ def _process_storm(entries: list[BufferedAlert]) -> None:
         incident_id = create_incident(
             f"storm:{len(entries)}-services",
             "critical",
-            storm_id=id(entries),  # unique per flush
+            storm_id=secrets.token_hex(8),
         )
         for entry in entries:
             notify.dispatch(entry.alert, {})
@@ -196,7 +197,7 @@ def _process_storm(entries: list[BufferedAlert]) -> None:
     incident_id = create_incident(
         f"storm:{', '.join(services[:5])}",
         "critical",
-        storm_id=id(entries),
+        storm_id=secrets.token_hex(8),
     )
 
     actually_notified = not dispatch_result.all_failed

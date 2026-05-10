@@ -48,6 +48,8 @@ from dataclasses import dataclass
 
 import yaml
 
+from .utils import _env_int
+
 logger = logging.getLogger(__name__)
 
 _shadow_thread: threading.Thread | None = None
@@ -260,10 +262,7 @@ def start_shadowing() -> None:
             logger.debug("Shadowing not started — no shadows.yaml or empty config")
             return
 
-        try:
-            check_interval = max(10, int(os.environ.get("SHADOW_CHECK_INTERVAL", "60")))
-        except (ValueError, TypeError):
-            check_interval = 60
+        check_interval = max(10, _env_int("SHADOW_CHECK_INTERVAL", 60))
 
         _shadow_thread = threading.Thread(
             target=_shadow_loop,

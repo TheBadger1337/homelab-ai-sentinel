@@ -37,6 +37,7 @@ import os
 import subprocess
 
 from .alert_parser import NormalizedAlert
+from .utils import _env_int
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ def get_triage_context(alert: NormalizedAlert) -> str | None:
         )
         return None
 
-    timeout = int(os.environ.get("REVERSE_TRIAGE_TIMEOUT", "10") or "10")
+    timeout = _env_int("REVERSE_TRIAGE_TIMEOUT", 10)
 
     try:
         result = subprocess.run(

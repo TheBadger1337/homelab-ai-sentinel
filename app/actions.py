@@ -107,7 +107,7 @@ def load_catalog() -> list[ActionDef]:
             )
         return catalog
     except Exception as exc:
-        logger.warning("Failed to load actions.yaml: %s", type(exc).__name__)
+        logger.warning("Failed to load actions.yaml: %s: %s", type(exc).__name__, exc)
         return []
 
 

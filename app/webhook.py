@@ -229,6 +229,38 @@ def _check_secret() -> bool:
     return hmac.compare_digest(provided, secret)
 
 
+# ---------------------------------------------------------------------------
+# CIDR subnet allowlist — parsed once and cached for the lifetime of the env var value
+# ---------------------------------------------------------------------------
+_SUBNET_CACHE: list[ipaddress.IPv4Network | ipaddress.IPv6Network] | None = None
+_SUBNET_ENV_VAL: str = ""
+_SUBNET_LOCK = Lock()
+
+
+def _get_subnet_list() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """Return parsed CIDR networks from WHITELIST_SUBNET env var, re-parsing only on change."""
+    global _SUBNET_CACHE, _SUBNET_ENV_VAL
+    current = os.environ.get("WHITELIST_SUBNET", "").strip()
+    if _SUBNET_CACHE is not None and current == _SUBNET_ENV_VAL:
+        return _SUBNET_CACHE
+    with _SUBNET_LOCK:
+        # Double-checked locking
+        if _SUBNET_CACHE is not None and current == _SUBNET_ENV_VAL:
+            return _SUBNET_CACHE
+        networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+        for entry in current.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                networks.append(ipaddress.ip_network(entry, strict=False))
+            except ValueError:
+                logger.warning("WHITELIST_SUBNET: invalid CIDR entry %r — skipping", entry)
+        _SUBNET_ENV_VAL = current
+        _SUBNET_CACHE = networks
+    return _SUBNET_CACHE
+
+
 def _check_subnet_allowlist() -> bool:
     """
     Return True if the request should be blocked (source IP not in any
@@ -242,21 +274,14 @@ def _check_subnet_allowlist() -> bool:
     Misconfigured entries are skipped with a warning — never silently block
     all traffic because of a bad CIDR string. If all entries are malformed,
     the allowlist is treated as absent (allow all).
+
+    The CIDR list is parsed once and cached. The cache is invalidated when
+    the env var value changes (supports live config reload without restart).
     """
-    raw = os.environ.get("WHITELIST_SUBNET", "").strip()
-    if not raw:
-        return False  # disabled
+    if not os.environ.get("WHITELIST_SUBNET", "").strip():
+        return False  # disabled — short-circuit before cache lookup
 
-    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
-    for entry in raw.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        try:
-            networks.append(ipaddress.ip_network(entry, strict=False))
-        except ValueError:
-            logger.warning("WHITELIST_SUBNET: invalid CIDR entry %r — skipping", entry)
-
+    networks = _get_subnet_list()
     if not networks:
         return False  # all entries were malformed — fail open
 
@@ -327,6 +352,13 @@ def webhook():
     if not _check_secret():
         log_security_event("auth_failure", f"ip={request.remote_addr}")
         return jsonify({"error": "unauthorized"}), 401
+
+    # 1b. Kill switch — operator can pause all alert processing without restarting.
+    #     Checked after auth so authenticated callers still get a meaningful response
+    #     (rather than 401) and the auth log stays accurate.
+    if os.environ.get("SENTINEL_PAUSED", "").lower() in ("1", "true", "yes"):
+        logger.info("SENTINEL_PAUSED: alert from %s dropped", request.remote_addr)
+        return jsonify({"status": "paused"}), 200
 
     # 2. Rate limit — checked after auth so only authenticated callers consume quota
     if _check_rate_limit():

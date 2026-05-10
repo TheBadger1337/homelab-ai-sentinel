@@ -534,8 +534,8 @@ def incident_detail(incident_id: int):
                 "SELECT id, ts, content FROM incident_notes WHERE incident_id = ? ORDER BY ts ASC",
                 (incident_id,),
             ).fetchall()]
-        except Exception:
-            pass  # table may not exist yet
+        except Exception as exc:
+            logger.debug("incident_notes query skipped: %s", exc)
 
         # Topology context for the service
         from .topology import get_topology

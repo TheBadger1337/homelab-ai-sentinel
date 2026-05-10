@@ -87,6 +87,44 @@ from .utils import _ai_provider, _env_float, _env_int, _validate_url
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Daily AI call cap — module-level counter (resets on process restart)
+# ---------------------------------------------------------------------------
+_daily_ai_lock = threading.Lock()
+_daily_ai_counts: dict[str, int] = {}  # {YYYY-MM-DD: count}
+
+
+def _check_daily_cap() -> bool:
+    """Return True if the daily AI call cap has been reached.
+
+    Reads MAX_AI_CALLS_PER_DAY env var (default 0 = unlimited). Uses a
+    module-level dict keyed by UTC date string — resets automatically on
+    day rollover. Thread-safe via _daily_ai_lock.
+
+    Returns False (allow) when cap is 0 or unset.
+    """
+    cap = _env_int("MAX_AI_CALLS_PER_DAY", 0)
+    if cap <= 0:
+        return False  # unlimited
+
+    import datetime
+    today = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+    with _daily_ai_lock:
+        count = _daily_ai_counts.get(today, 0)
+        if count >= cap:
+            logger.warning(
+                "Daily AI call cap reached (%d/%d) — skipping AI call",
+                count, cap,
+            )
+            return True
+        _daily_ai_counts[today] = count + 1
+        # Evict stale dates (keep only today to bound memory)
+        for key in list(_daily_ai_counts.keys()):
+            if key != today:
+                del _daily_ai_counts[key]
+    return False
+
+
+# ---------------------------------------------------------------------------
 # AI backpressure — limits concurrent AI calls to prevent thread starvation
 # ---------------------------------------------------------------------------
 _ai_semaphore: threading.Semaphore | None = None
@@ -927,6 +965,15 @@ def _call_with_failover(prompt: str) -> dict[str, Any]:
 
 def _call_with_failover_inner(prompt: str) -> dict[str, Any]:
     """Inner failover logic — called with or without semaphore."""
+    # Kill switch — return a canned response without calling any provider.
+    if os.environ.get("SENTINEL_PAUSED", "").lower() in ("1", "true", "yes"):
+        logger.info("SENTINEL_PAUSED: AI call skipped")
+        return {"insight": "AI analysis paused (SENTINEL_PAUSED=true)", "suggested_actions": [], "confidence": 1}
+
+    # Daily cap — return fallback without calling any provider.
+    if _check_daily_cap():
+        return _fallback("daily AI call cap reached (MAX_AI_CALLS_PER_DAY)")
+
     primary = _ai_provider()
     call_fn = _PROVIDER_DISPATCH.get(primary, _call_gemini)
     metrics.inc_labeled("sentinel_ai_calls_total", "provider", primary)

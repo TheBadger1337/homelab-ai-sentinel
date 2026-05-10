@@ -67,8 +67,8 @@ def _get_conn() -> sqlite3.Connection:
         if getattr(_local, "conn", None) is not None:
             try:
                 _local.conn.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("DB close error: %s", exc)
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
@@ -440,8 +440,8 @@ def check_and_record_rate(limit: int, window: int) -> bool:
         logger.warning("Rate log check failed: %s", type(exc).__name__)
         try:
             conn.rollback()
-        except Exception:
-            pass
+        except Exception as rb_exc:
+            logger.warning("DB rollback failed: %s", rb_exc)
         return False  # fail open — never block requests on DB error
 
 
@@ -614,8 +614,8 @@ def record_dedup_l2(key: str) -> None:
         logger.warning("Dedup L2 record failed: %s", type(exc).__name__)
         try:
             conn.rollback()
-        except Exception:
-            pass
+        except Exception as rb_exc:
+            logger.warning("DB rollback failed: %s", rb_exc)
 
 
 # ---------------------------------------------------------------------------
@@ -973,8 +973,8 @@ def close_thread_conn() -> None:
     if conn is not None:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("DB close error: %s", exc)
         _local.conn = None
 
 

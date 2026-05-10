@@ -14,6 +14,7 @@ Endpoints:
   GET /api/mcp/topology  — monitored service graph (always available)
 """
 
+import hmac
 import logging
 import os
 
@@ -26,17 +27,28 @@ mcp_bp = Blueprint("mcp", __name__, url_prefix="/api/mcp")
 
 
 def _check_auth() -> bool:
-    """Return True if the request is authorized to use MCP endpoints."""
-    secret = os.environ.get("WEBHOOK_SECRET", "").strip()
-    if not secret:
+    """Return True if the request is authorized to use MCP endpoints.
+
+    Prefers MCP_TOKEN env var; falls back to WEBHOOK_SECRET with a deprecation
+    warning so MCP auth can be rotated independently from webhook auth.
+    """
+    token = os.environ.get("MCP_TOKEN")
+    if token is None:
+        fallback = os.environ.get("WEBHOOK_SECRET", "").strip()
+        if fallback:
+            logger.warning(
+                "MCP_TOKEN not set; falling back to WEBHOOK_SECRET — "
+                "set MCP_TOKEN separately to decouple MCP and webhook auth"
+            )
+        token = fallback
+    else:
+        token = token.strip()
+
+    if not token:
         return True  # No secret configured — open access (same as /health)
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-        # Constant-time compare to prevent timing attacks
-        import hmac
-        return hmac.compare_digest(token, secret)
-    return False
+
+    auth_header = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    return hmac.compare_digest(auth_header, token)
 
 
 @mcp_bp.route("/health", methods=["GET"])
@@ -67,8 +79,8 @@ def mcp_health():
         rpm = get_rpm_status()
         payload["ai_rpm_used"] = rpm.get("used", 0)
         payload["ai_rpm_limit"] = rpm.get("limit", 0)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("RPM stats unavailable: %s", exc)
 
     payload["workers"] = os.environ.get("WEB_CONCURRENCY", "1")
     return jsonify(payload), 200
@@ -101,7 +113,7 @@ def mcp_alerts():
             since = 0
 
         with _get_conn() as conn:
-            query = "SELECT id, service, severity, source, message, ai_insight, ts FROM alerts WHERE 1=1"
+            query = "SELECT id, service, severity, source, message, insight, ts FROM alerts WHERE 1=1"
             params: list = []
             if severity:
                 query += " AND severity = ?"
@@ -111,7 +123,11 @@ def mcp_alerts():
                 params.append(since)
             query += " ORDER BY ts DESC LIMIT ?"
             params.append(limit)
-            rows = conn.execute(query, params).fetchall()
+            try:
+                rows = conn.execute(query, params).fetchall()
+            except Exception as exc:
+                logger.exception("mcp /alerts query failed: %s", type(exc).__name__)
+                return jsonify({"error": "internal error"}), 500
 
         alerts = [
             {
@@ -153,14 +169,23 @@ def mcp_incidents():
         limit = min(int(request.args.get("limit", 10)), 50)
 
         with _get_conn() as conn:
-            query = "SELECT id, title, status, severity, first_alert_ts, resolved_ts, alert_count, ai_summary FROM incidents WHERE 1=1"
+            # Real incidents schema: id, ts_start, ts_end, service, status, severity,
+            # root_cause, summary, alert_count, storm_id
+            query = (
+                "SELECT id, service || ' incident' AS title, status, severity,"
+                " ts_start, ts_end, alert_count, summary FROM incidents WHERE 1=1"
+            )
             params: list = []
             if status != "all":
                 query += " AND status = ?"
                 params.append(status)
-            query += " ORDER BY first_alert_ts DESC LIMIT ?"
+            query += " ORDER BY ts_start DESC LIMIT ?"
             params.append(limit)
-            rows = conn.execute(query, params).fetchall()
+            try:
+                rows = conn.execute(query, params).fetchall()
+            except Exception as exc:
+                logger.exception("mcp /incidents query failed: %s", type(exc).__name__)
+                return jsonify({"error": "internal error"}), 500
 
         incidents = [
             {

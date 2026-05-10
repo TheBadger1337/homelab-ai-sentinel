@@ -12,14 +12,8 @@ from typing import Any
 import requests
 
 from .alert_parser import NormalizedAlert
+from .notify_common import SEVERITY_EMOJI as _SEVERITY_EMOJI
 from .utils import _validate_url
-
-_SEVERITY_EMOJI = {
-    "critical": "🔴",
-    "warning":  "🟡",
-    "info":     "🟢",
-    "unknown":  "⚪",
-}
 
 # Slack renders <!here>, <!channel>, and <!everyone> in mrkdwn fields and
 # will fire a real channel notification. Strip them from all untrusted content.

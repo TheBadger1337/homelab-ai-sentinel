@@ -23,16 +23,10 @@ from email.mime.text import MIMEText
 from typing import Any
 
 from .alert_parser import NormalizedAlert
+from .notify_common import SEVERITY_EMOJI as _SEVERITY_EMOJI
 from .utils import _env_int
 
 logger = logging.getLogger(__name__)
-
-_SEVERITY_EMOJI = {
-    "critical": "🔴",
-    "warning":  "🟡",
-    "info":     "🟢",
-    "unknown":  "⚪",
-}
 
 
 def _build_subject(alert: NormalizedAlert) -> str:
